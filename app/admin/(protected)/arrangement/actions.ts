@@ -11,6 +11,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
+import { revalidatePublicPages } from "@/lib/cache";
 
 export async function updateArrangementOrder(orderedKeys: string[]) {
   const { supabase, user } = await requireAdmin();
@@ -29,5 +30,5 @@ export async function updateArrangementOrder(orderedKeys: string[]) {
   });
 
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
 }

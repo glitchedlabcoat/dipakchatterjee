@@ -9,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
+import { revalidatePublicPages } from "@/lib/cache";
 
 export type NavLinkInput = {
   label: string;
@@ -37,7 +38,7 @@ export async function createNavLink(input: NavLinkInput) {
   if (error) throw new Error(`Couldn't add nav link: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 
   return data;
 }
@@ -54,7 +55,7 @@ export async function updateNavLink(id: string, input: NavLinkPatch) {
   if (error) throw new Error(`Couldn't save nav link: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function deleteNavLink(id: string) {
@@ -64,7 +65,7 @@ export async function deleteNavLink(id: string) {
   if (error) throw new Error(`Couldn't delete nav link: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function reorderNavLinks(orderedIds: string[]) {
@@ -77,5 +78,5 @@ export async function reorderNavLinks(orderedIds: string[]) {
   if (failed?.error) throw new Error(`Couldn't save the new order: ${failed.error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }

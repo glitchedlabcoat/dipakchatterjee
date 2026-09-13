@@ -35,6 +35,16 @@ const nextConfig = {
   },
 
   images: {
+    // Note: this only affects images rendered through next/image's
+    // built-in Optimization API — this codebase deliberately renders
+    // every image as a plain <img> (see the
+    // `eslint-disable-next-line @next/next/no-img-element` comments
+    // throughout), so minimumCacheTTL is inert today. Kept here (rather
+    // than left out) so it's already correct the moment anything does
+    // start using next/image, and because remotePatterns below is
+    // required either way for next/image to be usable against Supabase
+    // Storage URLs at all.
+    minimumCacheTTL: 86400, // 24 hours
     remotePatterns: [
       {
         protocol: "https",

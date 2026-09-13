@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
+import { revalidatePublicPages } from "@/lib/cache";
 import { POST_BUCKET, type MediaKind, type PostLink } from "@/types/domain";
 
 export type PostFormInput = {
@@ -15,7 +16,7 @@ export type PostFormInput = {
   is_published: boolean;
   /** Each explicitly typed "embed" (rendered as an iframe when recognized) or "button" (always a plain CTA) — see types/domain.ts's PostLink. */
   links: PostLink[];
-  /** Whole seconds, 0-10; 0 disables the image carousel's auto-advance (manual arrows/dots only). */
+  /** Seconds, 0-10 (decimals allowed, e.g. 2.5); 0 disables the image carousel's auto-advance (manual arrows/dots only). */
   slideshow_interval: number;
 };
 
@@ -52,8 +53,7 @@ export async function createPost(input: PostFormInput) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
   redirect(`/admin/posts/${data.id}`);
 }
 
@@ -83,8 +83,7 @@ export async function updatePost(id: string, input: PostFormInput) {
 
   revalidatePath("/admin/posts");
   revalidatePath(`/admin/posts/${id}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function deletePost(id: string) {
@@ -114,8 +113,7 @@ export async function deletePost(id: string) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function togglePostPublished(id: string, is_published: boolean) {
@@ -129,8 +127,7 @@ export async function togglePostPublished(id: string, is_published: boolean) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/posts");
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function togglePostPinned(id: string, is_pinned: boolean) {
@@ -153,8 +150,7 @@ export async function togglePostPinned(id: string, is_pinned: boolean) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function addPostMedia(
@@ -187,8 +183,7 @@ export async function addPostMedia(
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 
   return { id: data.id };
 }
@@ -210,8 +205,7 @@ export async function deletePostMedia(postId: string, mediaId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function reorderPostMedia(postId: string, orderedIds: string[]) {
@@ -224,8 +218,7 @@ export async function reorderPostMedia(postId: string, orderedIds: string[]) {
   );
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function updatePostThumbnail(
@@ -256,8 +249,7 @@ export async function updatePostThumbnail(
   }
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function removePostThumbnail(postId: string) {
@@ -281,6 +273,5 @@ export async function removePostThumbnail(postId: string) {
   }
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }

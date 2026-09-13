@@ -9,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
+import { revalidatePublicPages } from "@/lib/cache";
 import type { FooterBlockType } from "@/types/domain";
 
 // ---------- Footer blocks ----------
@@ -36,7 +37,7 @@ export async function createFooterBlock(input: {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 
   return data;
 }
@@ -52,7 +53,7 @@ export async function updateFooterBlock(id: string, input: { title?: string; bod
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function deleteFooterBlock(id: string) {
@@ -63,7 +64,7 @@ export async function deleteFooterBlock(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function reorderFooterBlocks(orderedIds: string[]) {
@@ -74,7 +75,7 @@ export async function reorderFooterBlocks(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 // ---------- Footer links (inside a Quick Links block) ----------
@@ -101,7 +102,7 @@ export async function createFooterLink(blockId: string, input: { label: string; 
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 
   return data;
 }
@@ -117,7 +118,7 @@ export async function updateFooterLink(id: string, input: { label?: string; url?
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function deleteFooterLink(id: string) {
@@ -127,7 +128,7 @@ export async function deleteFooterLink(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function reorderFooterLinks(orderedIds: string[]) {
@@ -138,7 +139,7 @@ export async function reorderFooterLinks(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 // ---------- Social links (Follow block) ----------
@@ -162,7 +163,7 @@ export async function createSocialLink(input: { platform: string; label?: string
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 
   return data;
 }
@@ -182,7 +183,7 @@ export async function updateSocialLink(
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function deleteSocialLink(id: string) {
@@ -192,7 +193,7 @@ export async function deleteSocialLink(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function reorderSocialLinks(orderedIds: string[]) {
@@ -203,5 +204,5 @@ export async function reorderSocialLinks(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }

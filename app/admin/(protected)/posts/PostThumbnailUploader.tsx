@@ -55,7 +55,7 @@ export default function PostThumbnailUploader({
     const path = `${postId}/thumbnail-${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
     const { error: uploadError } = await supabase.storage
       .from(POST_BUCKET)
-      .upload(path, file, { cacheControl: "3600", upsert: false });
+      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
     if (uploadError) {
       setError(uploadError.message);

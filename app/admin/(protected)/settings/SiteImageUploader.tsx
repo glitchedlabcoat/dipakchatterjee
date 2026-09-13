@@ -55,7 +55,7 @@ export default function SiteImageUploader({
     const path = `${kind}/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
     const { error: uploadError } = await supabase.storage
       .from(SITE_BUCKET)
-      .upload(path, file, { cacheControl: "3600", upsert: false });
+      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
     if (uploadError) {
       setError(uploadError.message);

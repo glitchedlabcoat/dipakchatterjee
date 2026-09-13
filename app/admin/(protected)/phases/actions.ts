@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
+import { revalidatePublicPages } from "@/lib/cache";
 import { PHASE_BUCKET, type PhasePhoto } from "@/types/domain";
 
 export type PhaseFormInput = {
@@ -60,7 +61,7 @@ export async function createPhase(input: PhaseFormInput) {
   revalidatePath("/admin/features");
   revalidatePath("/admin/phases");
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
   redirect(`/admin/phases/${data.id}`);
 }
 
@@ -93,7 +94,7 @@ export async function updatePhase(id: string, input: PhaseFormInput) {
   revalidatePath("/admin/phases");
   revalidatePath(`/admin/phases/${id}`);
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function togglePhasePublished(id: string, is_published: boolean) {
@@ -105,7 +106,7 @@ export async function togglePhasePublished(id: string, is_published: boolean) {
 
   revalidatePath("/admin/features");
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function deletePhase(id: string) {
@@ -130,7 +131,7 @@ export async function deletePhase(id: string) {
 
   revalidatePath("/admin/features");
   revalidatePath("/admin/phases");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function addPhasePhoto(
@@ -157,7 +158,7 @@ export async function addPhasePhoto(
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/phases/${phaseId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function deletePhasePhoto(phaseId: string, path: string) {
@@ -180,7 +181,7 @@ export async function deletePhasePhoto(phaseId: string, path: string) {
   await supabase.storage.from(PHASE_BUCKET).remove([path]);
 
   revalidatePath(`/admin/phases/${phaseId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function updatePhasePhotoCaption(phaseId: string, path: string, caption: string) {
@@ -201,7 +202,7 @@ export async function updatePhasePhotoCaption(phaseId: string, path: string, cap
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/phases/${phaseId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function updatePhasePhotoFact(phaseId: string, path: string, fact: string) {
@@ -222,7 +223,7 @@ export async function updatePhasePhotoFact(phaseId: string, path: string, fact: 
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/phases/${phaseId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function reorderPhasePhotos(phaseId: string, orderedPaths: string[]) {
@@ -244,5 +245,5 @@ export async function reorderPhasePhotos(phaseId: string, orderedPaths: string[]
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/phases/${phaseId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }

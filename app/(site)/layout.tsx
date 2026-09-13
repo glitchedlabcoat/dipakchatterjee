@@ -4,39 +4,58 @@
 // the shared header/footer and the dynamic theme CSS variables. Route
 // group — adds no URL segment. Deliberately excludes /admin/*, which has
 // its own layout, chrome, and fixed branding.
+//
+// Data comes through getSiteChrome() below — an `unstable_cache`-wrapped
+// read using the cookie-free public client (see utils/supabase/public.ts
+// and lib/cache.ts for why: this site can't use page-level ISR since
+// proxy.ts's per-request CSP nonce forces every route dynamic, so
+// caching happens at the data-fetch layer instead). Cached for 60s,
+// busted instantly by revalidatePublicPages() from any Settings save.
 
-import { createClient } from "@/utils/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createPublicClient } from "@/utils/supabase/public";
+import { PUBLIC_CACHE_TAG } from "@/lib/cache";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
 import { darken } from "@/lib/color";
 import SiteHeader from "@/components/site/SiteHeader";
 import SiteFooter from "@/components/site/SiteFooter";
 
-export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const supabase = await createClient();
+const getSiteChrome = unstable_cache(
+  async () => {
+    const supabase = createPublicClient();
 
-  const [{ data: settings }, { data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
-    await Promise.all([
-      supabase
-        .from("site_settings")
-        .select(
-          "avatar_url, theme_primary_color, theme_secondary_color, header_name, header_subtitle, footer_tagline, footer_copyright_name, footer_note, office_email"
-        )
-        .eq("id", "default")
-        .single(),
-      supabase
-        .from("footer_blocks")
-        .select("*, footer_links(*)")
-        .order("display_order", { ascending: true })
-        .order("display_order", { foreignTable: "footer_links", ascending: true }),
-      supabase.from("social_links").select("*").order("display_order", { ascending: true }),
-      // Visibility is filtered client-side in SiteHeader (`!== false`),
-      // not with `.eq("is_visible", true)` here: that keeps this query
-      // resilient if the is_visible column/nav_links table itself isn't
-      // live yet on this database (a plain `select("*")` degrades to
-      // omitting the column rather than erroring on an unknown one).
-      supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
-      supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
-    ]);
+    const [{ data: settings }, { data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
+      await Promise.all([
+        supabase
+          .from("site_settings")
+          .select(
+            "avatar_url, theme_primary_color, theme_secondary_color, header_name, header_subtitle, footer_tagline, footer_copyright_name, footer_note, office_email"
+          )
+          .eq("id", "default")
+          .single(),
+        supabase
+          .from("footer_blocks")
+          .select("*, footer_links(*)")
+          .order("display_order", { ascending: true })
+          .order("display_order", { foreignTable: "footer_links", ascending: true }),
+        supabase.from("social_links").select("*").order("display_order", { ascending: true }),
+        // Visibility is filtered client-side in SiteHeader (`!== false`),
+        // not with `.eq("is_visible", true)` here: that keeps this query
+        // resilient if the is_visible column/nav_links table itself isn't
+        // live yet on this database (a plain `select("*")` degrades to
+        // omitting the column rather than erroring on an unknown one).
+        supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
+        supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
+      ]);
+
+    return { settings, footerBlocks, socialLinks, navLinks, headerActions };
+  },
+  ["site-chrome"],
+  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+);
+
+export default async function SiteLayout({ children }: { children: React.ReactNode }) {
+  const { settings, footerBlocks, socialLinks, navLinks, headerActions } = await getSiteChrome();
 
   const s = settings as Pick<
     SiteSettings,

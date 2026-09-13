@@ -27,7 +27,9 @@
 // among Organizations/Features/Posts follows the exact order chosen in
 // that unified admin list (see lib/homepage-layout.ts).
 
-import { createClient } from "@/utils/supabase/server";
+import { unstable_cache } from "next/cache";
+import { createPublicClient } from "@/utils/supabase/public";
+import { PUBLIC_CACHE_TAG } from "@/lib/cache";
 import type { CtaButton, FeatureWithMedia, Organization, Phase, PostWithMedia, SiteSettings } from "@/types/domain";
 import FeatureSection from "@/components/features/FeatureSection";
 import PostsFeed from "@/components/posts/PostsFeed";
@@ -49,38 +51,70 @@ const FALLBACK_HEADLINE = "A life spent teaching, organising, and showing up whe
 const FALLBACK_BODY =
   "Dipak Chatterjee has spent over two decades as a schoolteacher and headmaster in Chanchal, North Malda, alongside a parallel life of community organising. This is his record of work, and a direct line for anyone who needs help.";
 
+// DO NOT REMOVE. This page has no dynamic segment and, once its data
+// fetch moved off the cookie-reading Supabase client (below), nothing
+// left in its render path calls a Dynamic API — so Next.js started
+// prerendering it as a static/ISR page (confirmed via `next build`:
+// it showed up as `○ (Static)` with a 60s revalidate window). That's
+// broken with this site's per-request CSP nonce (proxy.ts): the nonce
+// baked into the cached HTML's <script> tags stops matching the fresh
+// nonce proxy.ts puts on each new response once the cache is more than
+// one request old, which the browser's CSP enforcement then treats as
+// a violation and refuses to run those scripts — verified by curling
+// this route twice against a production build and comparing the
+// embedded script nonce to each response's own CSP header. Forcing
+// dynamic rendering here restores one fresh nonce per response (what
+// every other route already gets, mostly for free, via cookies() or a
+// dynamic route segment) without giving up the data-fetch-level
+// caching below — `dynamic` only controls route/HTML caching, not
+// `unstable_cache`.
+export const dynamic = "force-dynamic";
+
+// See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
+// the data-fetch layer (unstable_cache) rather than via page-level ISR.
+const getHomepageData = unstable_cache(
+  async () => {
+    const supabase = createPublicClient();
+
+    const { data: settings } = await supabase.from("site_settings").select("*").eq("id", "default").single();
+    const notableWorksLimit = settings?.notable_works_limit ?? 6;
+
+    const [{ data: features }, { data: posts }, { data: phases }, { data: organizations }, { data: ctaButtons }] =
+      await Promise.all([
+        supabase
+          .from("features")
+          .select("*, feature_media(*)")
+          .eq("is_published", true)
+          .order("display_order", { ascending: true })
+          .order("display_order", { foreignTable: "feature_media", ascending: true }),
+        supabase
+          .from("posts")
+          .select("*, post_media(*)")
+          .eq("is_published", true)
+          .order("is_pinned", { ascending: false })
+          .order("published_at", { ascending: false })
+          .order("created_at", { ascending: false })
+          .order("display_order", { foreignTable: "post_media", ascending: true })
+          .limit(notableWorksLimit),
+        supabase
+          .from("phases")
+          .select("*")
+          .eq("is_published", true)
+          .order("sort_order", { ascending: true }),
+        supabase.from("organizations").select("*").order("display_order", { ascending: true }),
+        supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
+      ]);
+
+    return { settings, features, posts, phases, organizations, ctaButtons };
+  },
+  ["homepage"],
+  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+);
+
 export default async function HomePage() {
-  const supabase = await createClient();
-
-  const { data: settings } = await supabase.from("site_settings").select("*").eq("id", "default").single();
+  const { settings, features, posts, phases, organizations, ctaButtons } = await getHomepageData();
   const s = settings as SiteSettings | null;
-  const notableWorksLimit = s?.notable_works_limit ?? 6;
 
-  const [{ data: features }, { data: posts }, { data: phases }, { data: organizations }, { data: ctaButtons }] =
-    await Promise.all([
-      supabase
-        .from("features")
-        .select("*, feature_media(*)")
-        .eq("is_published", true)
-        .order("display_order", { ascending: true })
-        .order("display_order", { foreignTable: "feature_media", ascending: true }),
-      supabase
-        .from("posts")
-        .select("*, post_media(*)")
-        .eq("is_published", true)
-        .order("is_pinned", { ascending: false })
-        .order("published_at", { ascending: false })
-        .order("created_at", { ascending: false })
-        .order("display_order", { foreignTable: "post_media", ascending: true })
-        .limit(notableWorksLimit),
-      supabase
-        .from("phases")
-        .select("*")
-        .eq("is_published", true)
-        .order("sort_order", { ascending: true }),
-      supabase.from("organizations").select("*").order("display_order", { ascending: true }),
-      supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
-    ]);
   const headline = s?.hero_headline || FALLBACK_HEADLINE;
   const body = s?.hero_body || FALLBACK_BODY;
   const themePrimary = s?.theme_primary_color || "#C1832B";

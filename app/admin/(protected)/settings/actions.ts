@@ -4,6 +4,7 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
+import { revalidatePublicPages } from "@/lib/cache";
 import { SITE_BUCKET } from "@/types/domain";
 
 type ImageKind = "hero" | "avatar";
@@ -45,7 +46,7 @@ export async function updateSiteImage(
   });
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function updateHomepageSectionVisibility(key: "organizations" | "posts", visible: boolean) {
@@ -68,7 +69,7 @@ export async function updateHomepageSectionVisibility(key: "organizations" | "po
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export type LandingContentInput = {
@@ -101,7 +102,7 @@ export async function updateLandingContent(input: LandingContentInput) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function updateNotableWorksLimit(value: number) {
@@ -123,8 +124,7 @@ export async function updateNotableWorksLimit(value: number) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
-  revalidatePath("/notable-works");
+  revalidatePublicPages();
 }
 
 export async function updateOrgMaxPerRow(value: number) {
@@ -140,7 +140,7 @@ export async function updateOrgMaxPerRow(value: number) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export type BrandingTextInput = {
@@ -177,7 +177,7 @@ export async function updateBrandingText(input: BrandingTextInput) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function createOrganization(input: {
@@ -214,7 +214,7 @@ export async function createOrganization(input: {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 
   return data;
 }
@@ -244,7 +244,7 @@ export async function updateOrganization(
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function replaceOrganizationLogo(
@@ -271,7 +271,7 @@ export async function replaceOrganizationLogo(
   }
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function deleteOrganization(id: string) {
@@ -291,7 +291,7 @@ export async function deleteOrganization(id: string) {
   }
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function reorderOrganizations(orderedIds: string[]) {
@@ -304,7 +304,7 @@ export async function reorderOrganizations(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
@@ -342,7 +342,7 @@ export async function updateThemeColors(input: {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function createCtaButton(input: { label: string; url: string; color?: string }) {
@@ -366,7 +366,7 @@ export async function createCtaButton(input: { label: string; url: string; color
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 
   return data;
 }
@@ -389,7 +389,7 @@ export async function updateCtaButton(
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function deleteCtaButton(id: string) {
@@ -399,7 +399,7 @@ export async function deleteCtaButton(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function reorderCtaButtons(orderedIds: string[]) {
@@ -412,7 +412,7 @@ export async function reorderCtaButtons(orderedIds: string[]) {
   );
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function removeSiteImage(kind: ImageKind) {
@@ -443,5 +443,5 @@ export async function removeSiteImage(kind: ImageKind) {
   }
 
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }

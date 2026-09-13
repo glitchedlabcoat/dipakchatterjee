@@ -1,5 +1,41 @@
 # Changelog
 
+## [v1.7.0] - 2026-09-13
+
+### Summary of What Changed
+
+- Added an egress-reduction caching layer for public pages: `app/(site)/layout.tsx`, `page.tsx`, `notable-works/page.tsx`, `posts/[id]`, and `phases/[id]` now read through a new cookie-free public Supabase client (`utils/supabase/public.ts`), wrapped in `unstable_cache(..., { revalidate: 60, tags: ['public-content'] })` — verified with an instrumented run: 5 back-to-back homepage requests produced only 1 actual database query.
+- Added `revalidatePublicPages()` (`lib/cache.ts`) for instant on-demand cache flush, and wired it into every admin mutation that previously called `revalidatePath("/")` (arrangement, features, phases, posts, and every Settings sub-area — footer, header, nav) — roughly 20 call sites, so a dashboard save no longer waits out the 60-second window.
+- Bumped all Supabase Storage upload `cacheControl` values from 1 hour to 30 days (`2592000`) across feature media, organization logos, hero/avatar, post thumbnails, and phase photos, so a visitor's browser never re-fetches an already-downloaded image.
+- Added `images.minimumCacheTTL: 86400` to `next.config.ts` (currently inert — the site renders every image via a plain `<img>`, not `next/image`, so this only matters if that changes later).
+- **Correctness note:** the task's literal `export const revalidate = 60` snippet was a no-op here — this site's `proxy.ts` issues a fresh per-request CSP nonce on every route, which Next.js's own docs say requires dynamic rendering site-wide (confirmed by building with that export set and seeing the route stay `ƒ (Dynamic)`, not become ISR'd). Caching therefore happens one level down, at the data-fetch layer, not the route layer. One page (`app/(site)/page.tsx`) briefly became static/ISR *by accident* once its data-fetch stopped needing a Dynamic API (cookies) — caught by curling a built+started production server twice and finding the cached HTML's embedded script nonce no longer matched the live CSP header (would have blocked all scripts in a real browser). Fixed with an explicit, documented `export const dynamic = "force-dynamic"` on that page. The admin dashboard was already effectively uncached by construction (its Supabase client always reads cookies first) and remains untouched.
+
+### Files Edited
+
+- `lib/cache.ts` (new)
+- `utils/supabase/public.ts` (new)
+- `app/(site)/layout.tsx`
+- `app/(site)/page.tsx`
+- `app/(site)/notable-works/page.tsx`
+- `app/(site)/posts/[id]/page.tsx`
+- `app/(site)/phases/[id]/page.tsx`
+- `app/admin/(protected)/arrangement/actions.ts`
+- `app/admin/(protected)/features/actions.ts`
+- `app/admin/(protected)/phases/actions.ts`
+- `app/admin/(protected)/phases/PhasePhotosManager.tsx`
+- `app/admin/(protected)/posts/actions.ts`
+- `app/admin/(protected)/posts/PostThumbnailUploader.tsx`
+- `app/admin/(protected)/settings/actions.ts`
+- `app/admin/(protected)/settings/footer-actions.ts`
+- `app/admin/(protected)/settings/header-actions.ts`
+- `app/admin/(protected)/settings/nav-links-actions.ts`
+- `app/admin/(protected)/settings/OrganizationsManager.tsx`
+- `app/admin/(protected)/settings/SiteImageUploader.tsx`
+- `components/admin/MediaManager.tsx`
+- `next.config.ts`
+- `CHANGELOG.txt`
+- `CHANGELOG.md`
+
 ## [v1.6.0] - 2026-09-13
 
 ### Summary of What Changed

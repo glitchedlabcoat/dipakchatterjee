@@ -8,8 +8,10 @@
 
 import Link from "next/link";
 import type { Metadata } from "next";
+import { unstable_cache } from "next/cache";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { createClient } from "@/utils/supabase/server";
+import { createPublicClient } from "@/utils/supabase/public";
+import { PUBLIC_CACHE_TAG } from "@/lib/cache";
 import type { PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
 
@@ -18,6 +20,31 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 12;
+
+// See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
+// the data-fetch layer (unstable_cache) rather than via page-level ISR.
+// Keyed by page number so each page of results gets its own cache entry.
+const getNotableWorksPage = unstable_cache(
+  async (page: number) => {
+    const supabase = createPublicClient();
+    const from = (page - 1) * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    const { data: posts, count } = await supabase
+      .from("posts")
+      .select("*, post_media(*)", { count: "exact" })
+      .eq("is_published", true)
+      .order("is_pinned", { ascending: false })
+      .order("published_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .order("display_order", { foreignTable: "post_media", ascending: true })
+      .range(from, to);
+
+    return { posts, count };
+  },
+  ["notable-works"],
+  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+);
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-US", {
@@ -72,20 +99,8 @@ export default async function NotableWorksPage({
 }) {
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
-  const from = (page - 1) * PAGE_SIZE;
-  const to = from + PAGE_SIZE - 1;
 
-  const supabase = await createClient();
-
-  const { data: posts, count } = await supabase
-    .from("posts")
-    .select("*, post_media(*)", { count: "exact" })
-    .eq("is_published", true)
-    .order("is_pinned", { ascending: false })
-    .order("published_at", { ascending: false })
-    .order("created_at", { ascending: false })
-    .order("display_order", { foreignTable: "post_media", ascending: true })
-    .range(from, to);
+  const { posts, count } = await getNotableWorksPage(page);
 
   const postList = (posts as PostWithMedia[]) ?? [];
   const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));

@@ -9,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
+import { revalidatePublicPages } from "@/lib/cache";
 import type { HeaderActionIcon, HeaderActionPosition, HeaderActionStyle } from "@/types/domain";
 
 export type HeaderActionInput = {
@@ -54,7 +55,7 @@ export async function createHeaderAction(input: HeaderActionInput) {
   if (error) throw new Error(`Couldn't add header action: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 
   return data;
 }
@@ -76,7 +77,7 @@ export async function updateHeaderAction(id: string, input: HeaderActionPatch) {
   if (error) throw new Error(`Couldn't save header action: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function deleteHeaderAction(id: string) {
@@ -86,7 +87,7 @@ export async function deleteHeaderAction(id: string) {
   if (error) throw new Error(`Couldn't delete header action: ${error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }
 
 export async function reorderHeaderActions(orderedIds: string[]) {
@@ -99,5 +100,5 @@ export async function reorderHeaderActions(orderedIds: string[]) {
   if (failed?.error) throw new Error(`Couldn't save the new order: ${failed.error.message}`);
 
   revalidatePath("/admin/settings");
-  revalidatePath("/", "layout");
+  revalidatePublicPages();
 }

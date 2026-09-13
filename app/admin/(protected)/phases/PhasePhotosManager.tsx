@@ -104,7 +104,7 @@ export default function PhasePhotosManager({ phaseId, photos }: { phaseId: strin
 
     const { error: uploadError } = await supabase.storage
       .from(PHASE_BUCKET)
-      .upload(path, entry.file, { cacheControl: "3600", upsert: false });
+      .upload(path, entry.file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
     if (uploadError) {
       setPending((prev) =>

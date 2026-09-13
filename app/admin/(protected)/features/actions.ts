@@ -12,6 +12,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
+import { revalidatePublicPages } from "@/lib/cache";
 import { FEATURE_BUCKET, type MediaKind } from "@/types/domain";
 
 export type FeatureFormInput = {
@@ -44,7 +45,7 @@ export async function createFeature(input: FeatureFormInput) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/features");
-  revalidatePath("/");
+  revalidatePublicPages();
   redirect(`/admin/features/${data.id}`);
 }
 
@@ -65,7 +66,7 @@ export async function updateFeature(id: string, input: FeatureFormInput) {
 
   revalidatePath("/admin/features");
   revalidatePath(`/admin/features/${id}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function deleteFeature(id: string) {
@@ -86,7 +87,7 @@ export async function deleteFeature(id: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/features");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export type SectionRef = { kind: "feature" | "phase"; id: string };
@@ -113,7 +114,7 @@ export async function reorderSections(items: SectionRef[]) {
 
   revalidatePath("/admin/features");
   revalidatePath("/admin/settings");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function toggleFeaturePublished(id: string, is_published: boolean) {
@@ -128,7 +129,7 @@ export async function toggleFeaturePublished(id: string, is_published: boolean) 
 
   revalidatePath("/admin/features");
   revalidatePath("/admin/arrangement");
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function addFeatureMedia(
@@ -162,7 +163,7 @@ export async function addFeatureMedia(
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/features/${featureId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 
   return { id: data.id };
 }
@@ -184,7 +185,7 @@ export async function deleteFeatureMedia(featureId: string, mediaId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/features/${featureId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function updateFeatureMediaMeta(
@@ -202,7 +203,7 @@ export async function updateFeatureMediaMeta(
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/features/${featureId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
 
 export async function reorderFeatureMedia(featureId: string, orderedIds: string[]) {
@@ -215,5 +216,5 @@ export async function reorderFeatureMedia(featureId: string, orderedIds: string[
   );
 
   revalidatePath(`/admin/features/${featureId}`);
-  revalidatePath("/");
+  revalidatePublicPages();
 }
