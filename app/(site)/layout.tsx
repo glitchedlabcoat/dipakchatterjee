@@ -11,6 +11,24 @@
 // proxy.ts's per-request CSP nonce forces every route dynamic, so
 // caching happens at the data-fetch layer instead). Cached for 60s,
 // busted instantly by revalidatePublicPages() from any Settings save.
+//
+// DO NOT REMOVE `dynamic = "force-dynamic"` below. Before the cookie-free
+// client, every (site) page called cookies() somewhere (via the old
+// server Supabase client), and Next recognizes that as a special
+// "DynamicServerError" signal it catches internally during its
+// build-time static-eligibility probe — silently marking the route
+// dynamic without actually running the fetch. The cookie-free client
+// gives Next no such signal, so it instead *fully executes* getSiteChrome()
+// during that build-time probe for any page that looks staticable. This
+// broke CI (commit 889408d): GitHub Actions' build step has no
+// NEXT_PUBLIC_SUPABASE_URL, so the real fetch call threw "supabaseUrl is
+// required" while probing /complaints, and Next treats that as a hard
+// build failure rather than a dynamic-bailout. It only "worked" locally
+// because .env.local happens to supply that value, masking the bug.
+// Forcing this layout dynamic makes Next skip that static probe for
+// every page under (site) — matching reality (CSP already prevents any
+// of them from being served static) — instead of relying on each page
+// to accidentally trip a Dynamic API early enough.
 
 import { unstable_cache } from "next/cache";
 import { createPublicClient } from "@/utils/supabase/public";
@@ -19,6 +37,8 @@ import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialL
 import { darken } from "@/lib/color";
 import SiteHeader from "@/components/site/SiteHeader";
 import SiteFooter from "@/components/site/SiteFooter";
+
+export const dynamic = "force-dynamic";
 
 const getSiteChrome = unstable_cache(
   async () => {

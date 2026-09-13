@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.7.1] - 2026-09-13
+
+### Summary of What Changed
+
+- Fixed a CI build break introduced by v1.7.0: GitHub Actions' `npm run build` step (`.github/workflows/discord-notify.yml`) has no `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`, and once `app/(site)/layout.tsx` switched to the cookie-free public Supabase client, Next's build-time static-eligibility probe had no `cookies()` call left to trip its "bail to dynamic" signal — so it fully executed `getSiteChrome()` while probing `/complaints`, hit the missing env var, and failed the build outright (`Error: supabaseUrl is required.`). This passed locally only because `.env.local` happens to supply that value, masking the same latent bug.
+- Fixed by adding `export const dynamic = "force-dynamic"` to `app/(site)/layout.tsx`, so Next skips that static probe for every page under `(site)` — matching reality, since the CSP nonce already prevents any of them from being served static — instead of relying on each page to accidentally trip a Dynamic API early enough. `app/(site)/page.tsx` keeps its own `force-dynamic` too, now as a belt-and-suspenders guard.
+- Verified by building with `.env.local` removed entirely (true CI conditions): build failed before this fix with the exact CI error, and passed cleanly after it, with `/complaints` and every other `(site)` route still correctly `ƒ (Dynamic)`.
+
+### Files Edited
+
+- `app/(site)/layout.tsx`
+- `app/(site)/page.tsx`
+- `CHANGELOG.txt`
+- `CHANGELOG.md`
+
 ## [v1.7.0] - 2026-09-13
 
 ### Summary of What Changed

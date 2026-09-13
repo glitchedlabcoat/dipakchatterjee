@@ -51,23 +51,12 @@ const FALLBACK_HEADLINE = "A life spent teaching, organising, and showing up whe
 const FALLBACK_BODY =
   "Dipak Chatterjee has spent over two decades as a schoolteacher and headmaster in Chanchal, North Malda, alongside a parallel life of community organising. This is his record of work, and a direct line for anyone who needs help.";
 
-// DO NOT REMOVE. This page has no dynamic segment and, once its data
-// fetch moved off the cookie-reading Supabase client (below), nothing
-// left in its render path calls a Dynamic API — so Next.js started
-// prerendering it as a static/ISR page (confirmed via `next build`:
-// it showed up as `○ (Static)` with a 60s revalidate window). That's
-// broken with this site's per-request CSP nonce (proxy.ts): the nonce
-// baked into the cached HTML's <script> tags stops matching the fresh
-// nonce proxy.ts puts on each new response once the cache is more than
-// one request old, which the browser's CSP enforcement then treats as
-// a violation and refuses to run those scripts — verified by curling
-// this route twice against a production build and comparing the
-// embedded script nonce to each response's own CSP header. Forcing
-// dynamic rendering here restores one fresh nonce per response (what
-// every other route already gets, mostly for free, via cookies() or a
-// dynamic route segment) without giving up the data-fetch-level
-// caching below — `dynamic` only controls route/HTML caching, not
-// `unstable_cache`.
+// DO NOT REMOVE. This page has no dynamic segment, and app/(site)/layout.tsx
+// now also forces dynamic for the same reason (see the comment there for
+// the full story, including the CI build break this caused in 889408d) —
+// but this export is kept here too as a belt-and-suspenders guard in case
+// this page is ever moved out from under that layout. `dynamic` only
+// controls route/HTML caching, not the `unstable_cache` fetch below.
 export const dynamic = "force-dynamic";
 
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
