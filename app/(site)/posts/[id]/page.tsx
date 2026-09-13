@@ -21,11 +21,10 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { unstable_cache } from "next/cache";
 import ReactMarkdown from "react-markdown";
 import { ExternalLink, ArrowLeft } from "lucide-react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { PostLink, PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
 import PostEmbed from "@/components/posts/PostEmbed";
@@ -34,7 +33,8 @@ import { getEmbedInfo, type EmbedInfo } from "@/lib/embed";
 
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
 // the data-fetch layer (unstable_cache) rather than via page-level ISR.
-const getPublishedPost = unstable_cache(
+const getPublishedPost = createTrackedCache(
+  "/posts/[id]",
   async (id: string) => {
     const supabase = createPublicClient();
     const { data: post } = await supabase

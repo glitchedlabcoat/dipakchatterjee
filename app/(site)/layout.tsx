@@ -30,9 +30,8 @@
 // of them from being served static) — instead of relying on each page
 // to accidentally trip a Dynamic API early enough.
 
-import { unstable_cache } from "next/cache";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
 import { darken } from "@/lib/color";
 import SiteHeader from "@/components/site/SiteHeader";
@@ -40,7 +39,8 @@ import SiteFooter from "@/components/site/SiteFooter";
 
 export const dynamic = "force-dynamic";
 
-const getSiteChrome = unstable_cache(
+const getSiteChrome = createTrackedCache(
+  "layout:chrome",
   async () => {
     const supabase = createPublicClient();
 

@@ -27,9 +27,8 @@
 // among Organizations/Features/Posts follows the exact order chosen in
 // that unified admin list (see lib/homepage-layout.ts).
 
-import { unstable_cache } from "next/cache";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { CtaButton, FeatureWithMedia, Organization, Phase, PostWithMedia, SiteSettings } from "@/types/domain";
 import FeatureSection from "@/components/features/FeatureSection";
 import PostsFeed from "@/components/posts/PostsFeed";
@@ -61,7 +60,8 @@ export const dynamic = "force-dynamic";
 
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
 // the data-fetch layer (unstable_cache) rather than via page-level ISR.
-const getHomepageData = unstable_cache(
+const getHomepageData = createTrackedCache(
+  "/",
   async () => {
     const supabase = createPublicClient();
 

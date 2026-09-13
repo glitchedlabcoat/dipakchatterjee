@@ -64,6 +64,36 @@ export type Database = {
         }
         Relationships: []
       }
+      cache_metrics: {
+        Row: {
+          date: string
+          estimated_bytes_saved: number
+          estimated_bytes_spent: number
+          hits: number
+          id: string
+          misses: number
+          route: string
+        }
+        Insert: {
+          date?: string
+          estimated_bytes_saved?: number
+          estimated_bytes_spent?: number
+          hits?: number
+          id?: string
+          misses?: number
+          route: string
+        }
+        Update: {
+          date?: string
+          estimated_bytes_saved?: number
+          estimated_bytes_spent?: number
+          hits?: number
+          id?: string
+          misses?: number
+          route?: string
+        }
+        Relationships: []
+      }
       complaint_media: {
         Row: {
           complaint_id: string
@@ -766,6 +796,10 @@ export type Database = {
     }
     Functions: {
       is_admin: { Args: never; Returns: boolean }
+      record_cache_event: {
+        Args: { p_bytes: number; p_is_hit: boolean; p_route: string }
+        Returns: undefined
+      }
       transfer_admin_role: {
         Args: { new_admin_id: string }
         Returns: undefined

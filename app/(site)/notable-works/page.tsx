@@ -8,10 +8,9 @@
 
 import Link from "next/link";
 import type { Metadata } from "next";
-import { unstable_cache } from "next/cache";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
 
@@ -24,7 +23,8 @@ const PAGE_SIZE = 12;
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
 // the data-fetch layer (unstable_cache) rather than via page-level ISR.
 // Keyed by page number so each page of results gets its own cache entry.
-const getNotableWorksPage = unstable_cache(
+const getNotableWorksPage = createTrackedCache(
+  "/notable-works",
   async (page: number) => {
     const supabase = createPublicClient();
     const from = (page - 1) * PAGE_SIZE;

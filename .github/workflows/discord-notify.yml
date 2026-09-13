@@ -56,6 +56,18 @@ jobs:
             COLOR=15158332
           fi
 
+          # This workflow only ever runs on GitHub Actions itself, so
+          # this will always resolve to "Remote" — kept as a genuine
+          # environment check (mirroring scripts/notify-discord.js's
+          # detectBuildSource(), which covers the local-push case)
+          # rather than a hardcoded label, so both notification paths
+          # derive the source the same way.
+          if [ -n "$RENDER" ] || [ -n "$CI" ] || [ -n "$GITHUB_ACTIONS" ]; then
+            BUILD_SOURCE="Remote (Repo / Render)"
+          else
+            BUILD_SOURCE="Local (Development Environment)"
+          fi
+
           # First line of the commit message, used as the embed's short
           # description. jq's --arg (below) safely encodes every value —
           # including multi-line commit messages and any quotes they
@@ -74,6 +86,7 @@ jobs:
             --arg author "$COMMIT_AUTHOR" \
             --arg commit_url "$COMMIT_URL" \
             --arg run_url "$RUN_URL" \
+            --arg build_source "$BUILD_SOURCE" \
             '{
               embeds: [{
                 title: ($status + ": " + $repo + "@" + $branch),
@@ -84,6 +97,7 @@ jobs:
                   { name: "Author", value: $author, inline: true },
                   { name: "Branch", value: $branch, inline: true },
                   { name: "Commit", value: ("[" + $sha + "](" + $commit_url + ")"), inline: true },
+                  { name: "Build Source", value: $build_source, inline: true },
                   { name: "Full message", value: $message }
                 ],
                 footer: { text: "View the run" }

@@ -42,6 +42,18 @@ function git(cmd) {
   return execSync(`git ${cmd}`, { encoding: "utf8" }).trim();
 }
 
+// Distinguishes a build/push kicked off from a developer's own machine
+// from one running on a remote CI/deploy host (GitHub Actions, Render).
+// This script is only ever invoked by `npm run deploy:push` right after
+// a local `git push`, so it will realistically always report "Local" —
+// the check exists so the label is genuinely derived from the
+// environment rather than hardcoded, in case this script is ever also
+// wired into a remote build step.
+function detectBuildSource() {
+  const isRemote = Boolean(process.env.RENDER || process.env.CI || process.env.GITHUB_ACTIONS);
+  return isRemote ? "Remote (Repo / Render)" : "Local (Development Environment)";
+}
+
 // Discord rejects an embed field whose value exceeds 1024 characters
 // (title: 256, description: 4096) — this project's commit messages
 // regularly run to several paragraphs, well past that, which is
@@ -66,6 +78,7 @@ function main() {
   const author = git("log -1 --pretty=%an");
   const shortSha = git("log -1 --pretty=%h");
   const pushedAt = new Date();
+  const buildSource = detectBuildSource();
 
   const payload = {
     embeds: [
@@ -77,10 +90,11 @@ function main() {
           { name: "Author", value: truncate(author, 1024), inline: true },
           { name: "Branch", value: truncate(branch, 1024), inline: true },
           { name: "Commit", value: truncate(shortSha, 1024), inline: true },
+          { name: "Build Source", value: buildSource, inline: true },
           { name: "Full message", value: truncate(commitMessage, 1024) },
         ],
         timestamp: pushedAt.toISOString(),
-        footer: { text: "Pushed from local machine" },
+        footer: { text: buildSource },
       },
     ],
   };

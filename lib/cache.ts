@@ -34,7 +34,8 @@
 // matches the granularity this codebase already treated as "correct"
 // and is trivial to reason about. Split it into per-table tags later
 // only if over-invalidation actually becomes a measurable cost.
-import { revalidateTag } from "next/cache";
+import { revalidateTag, unstable_cache } from "next/cache";
+import { createPublicClient } from "@/utils/supabase/public";
 
 export const PUBLIC_CACHE_TAG = "public-content";
 
@@ -46,4 +47,72 @@ export function revalidatePublicPages() {
   // get the old "next request is a blocking cache miss" behavior, so an
   // admin's save is reflected on the very next public page load.
   revalidateTag(PUBLIC_CACHE_TAG, { expire: 0 });
+}
+
+// --- Cache Efficiency telemetry (Egress Monitor, /admin/egress) -----------
+//
+// Fires record_cache_event() (see the cache_metrics migration) on every
+// cache hit and miss so the dashboard can show real hit ratios and
+// estimated bandwidth saved, per route. Recording is fire-and-forget —
+// awaited internally by recordCacheEvent()'s own promise chain, but never
+// awaited by the caller — so a slow or failing telemetry write can never
+// delay or break an actual page render.
+async function recordCacheEvent(route: string, isHit: boolean, bytes: number) {
+  try {
+    const supabase = createPublicClient();
+    await supabase.rpc("record_cache_event", { p_route: route, p_is_hit: isHit, p_bytes: bytes });
+  } catch {
+    // Telemetry is best-effort. A failure here (network blip, RPC not
+    // yet migrated on some environment, etc.) must never surface to a
+    // site visitor or affect the page they're loading.
+  }
+}
+
+// Wraps `unstable_cache` with hit/miss telemetry for one route. Usage is
+// identical to `unstable_cache(fn, keyParts, options)` — just pass the
+// route label (the string shown in the Egress Monitor's per-route table,
+// e.g. "/", "/notable-works", "/posts/[id]") as the first argument.
+//
+// Hit vs. miss detection: `fn` only ever runs on a genuine cache miss
+// (that's what `unstable_cache` guarantees), so the miss side records
+// itself unambiguously from inside `fn`. The hit side has no such signal
+// — a cache hit returns straight out of `unstable_cache` without telling
+// the caller anything happened — so a monotonic per-route counter is
+// stashed inside the cached value itself: `fn` stamps its result with the
+// counter's value *after* incrementing it, and the outer wrapper compares
+// that stamp against the counter value it observed just before calling in.
+// A hit replays an old stamp from an earlier (already-recorded) miss, so
+// it always compares as "not newer" — cheap, allocation-free, and immune
+// to the read-then-write races a shared boolean flag would have under
+// concurrent requests (unstable_cache itself coalesces concurrent misses
+// for the same key into one execution, so every caller in a coalesced
+// batch reads the same "before" value and the same post-increment stamp).
+export function createTrackedCache<Args extends unknown[], T>(
+  route: string,
+  fn: (...args: Args) => Promise<T>,
+  keyParts: string[],
+  options: { revalidate: number; tags: string[] }
+): (...args: Args) => Promise<T> {
+  let missCounter = 0;
+
+  const cached = unstable_cache(
+    async (...args: Args) => {
+      const data = await fn(...args);
+      const bytes = Buffer.byteLength(JSON.stringify(data));
+      void recordCacheEvent(route, false, bytes);
+      missCounter += 1;
+      return { data, bytes, missToken: missCounter };
+    },
+    keyParts,
+    options
+  );
+
+  return async (...args: Args) => {
+    const before = missCounter;
+    const { data, bytes, missToken } = await cached(...args);
+    if (missToken <= before) {
+      void recordCacheEvent(route, true, bytes);
+    }
+    return data;
+  };
 }

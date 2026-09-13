@@ -1,6 +1,53 @@
 CHANGELOG
 =========
 
+[v1.8.0] - 2026-09-13
+
+Summary of what changed:
+  * Added an Egress & Cache Efficiency Monitor at /admin/egress: a new
+    cache_metrics table plus an atomic record_cache_event(route, is_hit,
+    bytes) upsert function (RLS: admin-only SELECT via is_admin(), no
+    direct insert/update policy for anyone - every write goes through
+    the function, which is SECURITY DEFINER with search_path pinned to
+    public, pg_temp). The dashboard shows a reduction-rate banner, a
+    baseline-vs-actual-vs-saved comparison, a per-route hit/miss/
+    bandwidth table, and a Today / Last 7 Days / Last 30 Days filter.
+  * Wired hit/miss telemetry into lib/cache.ts's createTrackedCache() (a
+    drop-in replacement for unstable_cache, now used at all 5 public
+    data-fetch call sites: homepage, layout chrome, notable works,
+    post, phase). Hit vs. miss is detected via a monotonic per-route
+    counter stamped into the cached value itself, not a shared mutable
+    flag - the latter has a real race under concurrent requests to the
+    same route; the counter approach doesn't, and was confirmed correct
+    by starting a production server and checking the recorded rows
+    directly against known request counts.
+  * Updated the existing Claude Code Stop hook
+    (.claude/settings.local.json, local-only/gitignored) so its Discord
+    ping is strictly "Hey! Claude needs your attention!" - no terminal
+    output, diffs, or logs attached.
+  * Added environment-based build-source detection (RENDER / CI /
+    GITHUB_ACTIONS) to both Discord notification paths -
+    scripts/notify-discord.js (local npm run deploy:push) and
+    .github/workflows/discord-notify.yml (CI) - each now labels its
+    embed "Remote (Repo / Render)" or "Local (Development Environment)".
+
+Files edited (paths only):
+  - supabase/migrations/20260925000000_cache_metrics.sql (new)
+  - types/database.types.ts
+  - types/domain.ts
+  - lib/cache.ts
+  - app/(site)/layout.tsx
+  - app/(site)/page.tsx
+  - app/(site)/notable-works/page.tsx
+  - app/(site)/posts/[id]/page.tsx
+  - app/(site)/phases/[id]/page.tsx
+  - app/admin/(protected)/egress/page.tsx (new)
+  - components/admin/AdminSidebar.tsx
+  - scripts/notify-discord.js
+  - .github/workflows/discord-notify.yml
+  - CHANGELOG.txt
+  - CHANGELOG.md
+
 [v1.7.1] - 2026-09-13
 
 Summary of what changed:

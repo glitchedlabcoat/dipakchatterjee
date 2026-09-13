@@ -22,6 +22,7 @@ export type FooterLink = Tables<"footer_links">;
 export type HeaderAction = Tables<"header_actions">;
 export type NavLink = Tables<"nav_links">;
 export type DashboardActivityLog = Tables<"dashboard_activity_logs">;
+export type CacheMetric = Tables<"cache_metrics">;
 
 export type FeatureType = Feature["type"];
 export type MediaKind = FeatureMedia["kind"];

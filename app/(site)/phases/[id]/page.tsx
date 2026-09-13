@@ -11,17 +11,17 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { unstable_cache } from "next/cache";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft } from "lucide-react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { Phase, PhasePhoto } from "@/types/domain";
 import PhaseFullGallery from "@/components/phases/PhaseFullGallery";
 
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
 // the data-fetch layer (unstable_cache) rather than via page-level ISR.
-const getPublishedPhase = unstable_cache(
+const getPublishedPhase = createTrackedCache(
+  "/phases/[id]",
   async (id: string) => {
     const supabase = createPublicClient();
     const { data: phase } = await supabase.from("phases").select("*").eq("id", id).eq("is_published", true).single();
