@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Loader2, Plus, Save, Trash2 } from "lucide-react";
@@ -24,6 +24,8 @@ const postSchema = z.object({
   title: z.string().trim().max(200).optional(),
   body: z.string().trim().max(20000).optional(),
   published_at: z.string().optional(),
+  published_date: z.string().optional(),
+  show_published_time: z.boolean(),
   is_published: z.boolean(),
   links: z.array(linkSchema).max(10),
   // Registered with { valueAsNumber: true } below, so RHF already hands
@@ -40,6 +42,12 @@ function toLocalDatetimeInputValue(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
     date.getHours()
   )}:${pad(date.getMinutes())}`;
+}
+
+/** "YYYY-MM-DD" in the browser's local time, for a date-only input's value/default. */
+function toLocalDateInputValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function newLinkId() {
@@ -68,6 +76,8 @@ export default function PostForm({
       title: post?.title ?? "",
       body: post?.body ?? "",
       published_at: toLocalDatetimeInputValue(post ? new Date(post.published_at) : new Date()),
+      published_date: toLocalDateInputValue(post ? new Date(post.published_at) : new Date()),
+      show_published_time: post?.show_published_time ?? true,
       is_published: post?.is_published ?? false,
       links: ((post?.links as unknown as PostLink[]) ?? []).map((l) => ({ ...l, label: l.label ?? "" })),
       slideshow_interval: post?.slideshow_interval ?? 0,
@@ -78,6 +88,8 @@ export default function PostForm({
 
   useUnsavedChangesWarning(isDirty);
 
+  const showPublishedTime = useWatch({ control, name: "show_published_time" });
+
   function submit(values: PostFormValues) {
     setServerError(null);
     startTransition(async () => {
@@ -85,7 +97,12 @@ export default function PostForm({
         await onSubmit({
           title: values.title ?? "",
           body: values.body ?? "",
-          published_at: values.published_at ?? "",
+          published_at: values.show_published_time
+            ? values.published_at ?? ""
+            : values.published_date
+              ? `${values.published_date}T00:00`
+              : "",
+          show_published_time: values.show_published_time,
           is_published: values.is_published,
           links: values.links.map((l) => ({ ...l, label: l.label || undefined })),
           slideshow_interval: values.slideshow_interval,
@@ -117,20 +134,46 @@ export default function PostForm({
       </div>
 
       <div>
-        <label htmlFor="published_at" className="block text-sm font-medium text-navy-900 mb-1.5">
-          Publication date &amp; time
-        </label>
-        <input
-          id="published_at"
-          type="datetime-local"
-          {...register("published_at")}
-          className="w-full rounded-md border border-line bg-white px-4 py-3 text-sm text-ink focus:border-saffron focus:outline-none"
-        />
+        <div className="flex items-center justify-between mb-1.5">
+          <label htmlFor={showPublishedTime ? "published_at" : "published_date"} className="block text-sm font-medium text-navy-900">
+            Publication date{showPublishedTime ? " & time" : ""}
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium text-ink-600">
+            <input
+              type="checkbox"
+              {...register("show_published_time")}
+              className="w-3.5 h-3.5 rounded border-line text-saffron focus:ring-saffron"
+            />
+            Include time
+          </label>
+        </div>
+
+        {showPublishedTime ? (
+          <input
+            id="published_at"
+            type="datetime-local"
+            {...register("published_at")}
+            className="w-full rounded-md border border-line bg-white px-4 py-3 text-sm text-ink focus:border-saffron focus:outline-none"
+          />
+        ) : (
+          <input
+            id="published_date"
+            type="date"
+            {...register("published_date")}
+            className="w-full rounded-md border border-line bg-white px-4 py-3 text-sm text-ink focus:border-saffron focus:outline-none"
+          />
+        )}
+
         <p className="text-xs text-ink-400 mt-1.5">
-          Backdate this to publish a historical update. Defaults to now if left blank.
+          Backdate this to publish a historical update. Defaults to now if left blank. Uncheck
+          &ldquo;Include time&rdquo; to show visitors just the date, e.g. &ldquo;December 30,
+          2021&rdquo; instead of &ldquo;December 30, 2021 at 11:00 PM&rdquo;.
         </p>
         {errors.published_at && (
           <p className="text-xs text-rust mt-1.5">{errors.published_at.message}</p>
+        )}
+        {errors.published_date && (
+          <p className="text-xs text-rust mt-1.5">{errors.published_date.message}</p>
         )}
       </div>
 

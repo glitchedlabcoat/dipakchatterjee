@@ -180,6 +180,29 @@ export async function updateBrandingText(input: BrandingTextInput) {
   revalidatePublicPages();
 }
 
+export async function updateSiteTitle(value: string) {
+  const { supabase, user } = await requireAdmin();
+
+  const siteTitle = value.trim();
+  if (!siteTitle) throw new Error("Browser tab title can't be blank.");
+
+  const { error } = await supabase
+    .from("site_settings")
+    .update({ site_title: siteTitle, updated_at: new Date().toISOString() })
+    .eq("id", "default");
+
+  if (error) throw new Error(error.message);
+
+  await logDashboardActivity(supabase, user, {
+    action: "UPDATE_SETTINGS",
+    entityType: "settings",
+    details: `Updated browser tab title to "${siteTitle}"`,
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePublicPages();
+}
+
 export async function createOrganization(input: {
   name: string;
   logo_url: string;

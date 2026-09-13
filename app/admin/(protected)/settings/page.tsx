@@ -18,6 +18,7 @@ import OrganizationsManager from "./OrganizationsManager";
 import ThemeColorForm from "./ThemeColorForm";
 import CtaButtonsManager from "./CtaButtonsManager";
 import BrandingTextForm from "./BrandingTextForm";
+import BrowserTabSettingsForm from "./BrowserTabSettingsForm";
 import FooterBlocksManager from "./FooterBlocksManager";
 import SocialLinksManager from "./SocialLinksManager";
 import HeaderNavigationManager from "./HeaderNavigationManager";
@@ -137,6 +138,7 @@ export default async function SettingsPage() {
       <SettingsTabs
         general={
           <>
+            <BrowserTabSettingsForm siteTitle={s?.site_title ?? "Janatar Dipak"} />
             <BrandingTextForm settings={s} />
             <FooterBlocksManager blocks={(footerBlocks as FooterBlockWithLinks[]) ?? []} />
             <SocialLinksManager links={(socialLinks as SocialLink[]) ?? []} />

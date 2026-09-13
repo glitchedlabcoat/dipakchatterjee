@@ -141,13 +141,26 @@ export default function SiteHeader({
     <header className="sticky top-0 z-40 bg-paper-100/95 backdrop-blur border-b border-line transition-colors">
       <nav className="relative z-10 max-w-6xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between gap-3">
         <Link href="/" onClick={(e) => handleAnchorClick(e, "/")} className="flex items-center gap-3 min-w-0">
-          <span className="w-9 h-9 md:w-10 md:h-10 rounded-full overflow-hidden shrink-0 border border-line bg-paper-100 flex items-center justify-center">
+          <span className="w-9 h-9 md:w-10 md:h-10 rounded-full overflow-hidden shrink-0 border border-line bg-[var(--theme-primary)]/10 flex items-center justify-center">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
-            ) : (
-              <span className="font-display text-xs text-ink-400">DC</span>
-            )}
+              <img
+                src={avatarUrl}
+                alt=""
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  // Broken/expired storage URL: fall back to the "DC"
+                  // monogram instead of leaving a blank/broken circle.
+                  e.currentTarget.style.display = "none";
+                  e.currentTarget.nextElementSibling?.classList.remove("hidden");
+                }}
+              />
+            ) : null}
+            <span
+              className={`font-display font-bold text-sm text-[var(--theme-primary)] ${avatarUrl ? "hidden" : ""}`}
+            >
+              DC
+            </span>
           </span>
 
           <span className="leading-tight min-w-0">

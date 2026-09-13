@@ -13,9 +13,10 @@ import { createPublicClient } from "@/utils/supabase/public";
 import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
+import { formatPostDate } from "@/lib/post-date";
 
 export const metadata: Metadata = {
-  title: "Notable Works | Dipak Chatterjee",
+  title: "Notable Works",
 };
 
 const PAGE_SIZE = 12;
@@ -46,14 +47,6 @@ const getNotableWorksPage = createTrackedCache(
   { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
 );
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
-
 const EXCERPT_LENGTH = 140;
 function excerpt(body: string) {
   if (body.length <= EXCERPT_LENGTH) return body;
@@ -75,7 +68,9 @@ function PostCard({ post }: { post: PostWithMedia }) {
       )}
 
       <div className="p-5 flex-1 flex flex-col">
-        <p className="text-xs text-[var(--theme-primary)] font-semibold">{formatDate(post.published_at)}</p>
+        <p className="text-xs text-[var(--theme-primary)] font-semibold">
+          {formatPostDate(post.published_at, post.show_published_time)}
+        </p>
 
         {post.title && <h3 className="font-display text-xl text-navy-900 mt-2">{post.title}</h3>}
 

@@ -30,6 +30,8 @@
 // of them from being served static) — instead of relying on each page
 // to accidentally trip a Dynamic API early enough.
 
+import { cache } from "react";
+import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
 import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
@@ -39,40 +41,61 @@ import SiteFooter from "@/components/site/SiteFooter";
 
 export const dynamic = "force-dynamic";
 
-const getSiteChrome = createTrackedCache(
-  "layout:chrome",
-  async () => {
-    const supabase = createPublicClient();
+const DEFAULT_SITE_TITLE = "Janatar Dipak";
 
-    const [{ data: settings }, { data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
-      await Promise.all([
-        supabase
-          .from("site_settings")
-          .select(
-            "avatar_url, theme_primary_color, theme_secondary_color, header_name, header_subtitle, footer_tagline, footer_copyright_name, footer_note, office_email"
-          )
-          .eq("id", "default")
-          .single(),
-        supabase
-          .from("footer_blocks")
-          .select("*, footer_links(*)")
-          .order("display_order", { ascending: true })
-          .order("display_order", { foreignTable: "footer_links", ascending: true }),
-        supabase.from("social_links").select("*").order("display_order", { ascending: true }),
-        // Visibility is filtered client-side in SiteHeader (`!== false`),
-        // not with `.eq("is_visible", true)` here: that keeps this query
-        // resilient if the is_visible column/nav_links table itself isn't
-        // live yet on this database (a plain `select("*")` degrades to
-        // omitting the column rather than erroring on an unknown one).
-        supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
-        supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
-      ]);
+// Wrapped in React's `cache()` so generateMetadata and SiteLayout below
+// (both called once per request) share a single call into
+// createTrackedCache/unstable_cache instead of two — see "Memoizing data
+// requests" in node_modules/next/dist/docs/01-app/01-getting-started/14-metadata-and-og-images.md.
+const getSiteChrome = cache(
+  createTrackedCache(
+    "layout:chrome",
+    async () => {
+      const supabase = createPublicClient();
 
-    return { settings, footerBlocks, socialLinks, navLinks, headerActions };
-  },
-  ["site-chrome"],
-  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+      const [{ data: settings }, { data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
+        await Promise.all([
+          // `select("*")`, not a named column list: same reasoning as
+          // nav_links below — this stays resilient if a column (e.g.
+          // site_title) hasn't reached this database yet, degrading to
+          // omitting it rather than erroring PostgREST's whole select
+          // (and, before this fix, taking avatar_url/header_name/
+          // theme colors/everything else down with it — a single
+          // not-yet-migrated column shouldn't break the entire header).
+          supabase.from("site_settings").select("*").eq("id", "default").single(),
+          supabase
+            .from("footer_blocks")
+            .select("*, footer_links(*)")
+            .order("display_order", { ascending: true })
+            .order("display_order", { foreignTable: "footer_links", ascending: true }),
+          supabase.from("social_links").select("*").order("display_order", { ascending: true }),
+          // Visibility is filtered client-side in SiteHeader (`!== false`),
+          // not with `.eq("is_visible", true)` here: that keeps this query
+          // resilient if the is_visible column/nav_links table itself isn't
+          // live yet on this database (a plain `select("*")` degrades to
+          // omitting the column rather than erroring on an unknown one).
+          supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
+          supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
+        ]);
+
+      return { settings, footerBlocks, socialLinks, navLinks, headerActions };
+    },
+    ["site-chrome"],
+    { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+  )
 );
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { settings } = await getSiteChrome();
+  const siteTitle = (settings as Pick<SiteSettings, "site_title"> | null)?.site_title?.trim() || DEFAULT_SITE_TITLE;
+
+  return {
+    title: {
+      default: siteTitle,
+      template: `%s - ${siteTitle}`,
+    },
+  };
+}
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
   const { settings, footerBlocks, socialLinks, navLinks, headerActions } = await getSiteChrome();

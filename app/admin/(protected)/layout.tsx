@@ -76,7 +76,19 @@ export default async function AdminProtectedLayout({
 
   return (
     <MobileSidebarProvider>
-      <div className="min-h-screen flex">
+      {/* h-dvh (not h-screen/100vh) + overflow-hidden so the page itself
+          never scrolls — scrolling instead happens independently inside
+          the sidebar's nav (if it ever grows past viewport height) and
+          inside main's content pane below, so the sidebar's bottom
+          user/sign-out cluster and main's header bar both stay put
+          regardless of how long a page's content (e.g. Settings) runs.
+          dvh over 100vh/h-screen specifically for mobile Safari/Chrome:
+          h-screen is measured with the browser's address bar retracted,
+          so combined with overflow-hidden here it would push that much
+          of the layout's bottom off-screen behind the (usually visible)
+          toolbar with no page scroll left to reach it. dvh tracks the
+          actual visible viewport as browser chrome shows/hides. */}
+      <div className="h-dvh flex overflow-hidden">
         {/* app/globals.css hides Next.js's dev-mode floating indicator
             site-wide; this re-enables it, but only for as long as this
             admin layout is mounted (a plain <style> tag's rules apply to
@@ -90,7 +102,7 @@ export default async function AdminProtectedLayout({
           userLabel={profile.full_name ?? user.email ?? "Unknown"}
         />
 
-        <main className="w-full flex-1 bg-paper-100 min-h-screen flex flex-col">
+        <main className="w-full flex-1 min-w-0 bg-paper-100 h-full flex flex-col overflow-hidden">
           <header className="h-14 shrink-0 border-b border-line bg-white flex items-center justify-between px-4 md:px-6">
             <div className="flex items-center min-w-0">
               <SidebarToggleButton />
@@ -98,7 +110,7 @@ export default async function AdminProtectedLayout({
             </div>
             <SessionTimer />
           </header>
-          <div className="flex-1 w-full max-w-5xl mx-auto px-4 md:px-6 py-10">{children}</div>
+          <div className="flex-1 overflow-y-auto w-full max-w-5xl mx-auto px-4 md:px-6 py-10">{children}</div>
         </main>
       </div>
     </MobileSidebarProvider>

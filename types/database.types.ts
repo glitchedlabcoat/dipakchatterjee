@@ -579,6 +579,7 @@ export type Database = {
           is_published: boolean
           links: Json
           published_at: string
+          show_published_time: boolean
           slideshow_interval: number
           thumbnail_path: string | null
           thumbnail_url: string | null
@@ -594,6 +595,7 @@ export type Database = {
           is_published?: boolean
           links?: Json
           published_at?: string
+          show_published_time?: boolean
           slideshow_interval?: number
           thumbnail_path?: string | null
           thumbnail_url?: string | null
@@ -609,6 +611,7 @@ export type Database = {
           is_published?: boolean
           links?: Json
           published_at?: string
+          show_published_time?: boolean
           slideshow_interval?: number
           thumbnail_path?: string | null
           thumbnail_url?: string | null
@@ -689,6 +692,7 @@ export type Database = {
           show_organizations_section: boolean
           show_phases_section: boolean
           show_posts_feed_section: boolean
+          site_title: string
           theme_primary_color: string
           theme_secondary_color: string
           updated_at: string
@@ -723,6 +727,7 @@ export type Database = {
           show_organizations_section?: boolean
           show_phases_section?: boolean
           show_posts_feed_section?: boolean
+          site_title?: string
           theme_primary_color?: string
           theme_secondary_color?: string
           updated_at?: string
@@ -757,6 +762,7 @@ export type Database = {
           show_organizations_section?: boolean
           show_phases_section?: boolean
           show_posts_feed_section?: boolean
+          site_title?: string
           theme_primary_color?: string
           theme_secondary_color?: string
           updated_at?: string

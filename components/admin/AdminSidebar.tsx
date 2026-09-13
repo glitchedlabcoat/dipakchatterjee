@@ -46,11 +46,11 @@ export default function AdminSidebar({
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-navy-900 text-paper-100 flex flex-col transition-transform duration-300 ease-in-out md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 shrink-0 bg-navy-900 text-paper-100 flex flex-col transition-transform duration-300 ease-in-out md:static md:h-full md:translate-x-0 ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="px-6 py-6 border-b border-white/10 flex items-start justify-between">
+        <div className="shrink-0 px-6 py-6 border-b border-white/10 flex items-start justify-between">
           <div>
             <p className="font-display text-lg text-white">{brandName}</p>
             <p className="text-xs text-paper-100/60 mt-1">{brandSubtitle}</p>
@@ -65,7 +65,7 @@ export default function AdminSidebar({
           </button>
         </div>
 
-        <nav className="flex-1 px-3 py-5 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1">
           {NAV_LINKS.map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
@@ -79,7 +79,7 @@ export default function AdminSidebar({
           ))}
         </nav>
 
-        <div className="px-3 py-5 border-t border-white/10 space-y-3">
+        <div className="shrink-0 px-3 py-5 border-t border-white/10 space-y-3">
           <a
             href="/"
             target="_blank"

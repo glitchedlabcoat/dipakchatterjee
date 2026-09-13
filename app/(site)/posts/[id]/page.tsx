@@ -19,7 +19,9 @@
 //     instead.
 //   - Neither an embed nor uploaded media: the text renders full-width.
 
+import { cache } from "react";
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ExternalLink, ArrowLeft } from "lucide-react";
@@ -30,34 +32,43 @@ import MediaPlayer from "@/components/MediaPlayer";
 import PostEmbed from "@/components/posts/PostEmbed";
 import PostImageCarousel from "@/components/posts/PostImageCarousel";
 import { getEmbedInfo, type EmbedInfo } from "@/lib/embed";
+import { formatPostDate } from "@/lib/post-date";
+import { truncateTitle } from "@/lib/truncate-title";
 
 // See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
 // the data-fetch layer (unstable_cache) rather than via page-level ISR.
-const getPublishedPost = createTrackedCache(
-  "/posts/[id]",
-  async (id: string) => {
-    const supabase = createPublicClient();
-    const { data: post } = await supabase
-      .from("posts")
-      .select("*, post_media(*)")
-      .eq("id", id)
-      .eq("is_published", true)
-      .order("display_order", { foreignTable: "post_media", ascending: true })
-      .single();
-    return post;
-  },
-  ["post"],
-  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+// Wrapped in React's `cache()` so generateMetadata and PostPage below
+// (both called once per request for the same id) share a single call
+// instead of two.
+const getPublishedPost = cache(
+  createTrackedCache(
+    "/posts/[id]",
+    async (id: string) => {
+      const supabase = createPublicClient();
+      const { data: post } = await supabase
+        .from("posts")
+        .select("*, post_media(*)")
+        .eq("id", id)
+        .eq("is_published", true)
+        .order("display_order", { foreignTable: "post_media", ascending: true })
+        .single();
+      return post;
+    },
+    ["post"],
+    { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+  )
 );
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleString("en-US", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const post = await getPublishedPost(id);
+  if (!post) return {};
+
+  return { title: truncateTitle((post as PostWithMedia).title || "Update") };
 }
 
 function buttonLabel(link: PostLink) {
@@ -142,7 +153,9 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
 
         <div className={isSplitLayout ? "grid lg:grid-cols-2 gap-8 lg:gap-12 items-start" : ""}>
           <div className={isSplitLayout ? "" : "max-w-2xl"}>
-            <p className="text-xs text-ink-400 font-medium">{formatDate(typedPost.published_at)}</p>
+            <p className="text-xs text-ink-400 font-medium">
+              {formatPostDate(typedPost.published_at, typedPost.show_published_time)}
+            </p>
             <h1 className="font-display text-3xl md:text-4xl text-navy-900 leading-tight mt-2">
               {typedPost.title || "Update"}
             </h1>

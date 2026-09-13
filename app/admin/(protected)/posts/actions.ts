@@ -13,6 +13,8 @@ export type PostFormInput = {
   body: string;
   /** "YYYY-MM-DDTHH:mm" from a datetime-local input, in the admin's local time; empty to fall back to now(). */
   published_at: string;
+  /** Whether the public post page shows published_at's time alongside its date. */
+  show_published_time: boolean;
   is_published: boolean;
   /** Each explicitly typed "embed" (rendered as an iframe when recognized) or "button" (always a plain CTA) — see types/domain.ts's PostLink. */
   links: PostLink[];
@@ -35,6 +37,7 @@ export async function createPost(input: PostFormInput) {
       // Omitted (not just null) so the column's `default now()` applies
       // when the admin leaves the picker untouched/cleared.
       ...(input.published_at ? { published_at: new Date(input.published_at).toISOString() } : {}),
+      show_published_time: input.show_published_time,
       is_published: input.is_published,
       links: input.links,
       slideshow_interval: clampSlideshowInterval(input.slideshow_interval),
@@ -66,6 +69,7 @@ export async function updatePost(id: string, input: PostFormInput) {
       title: input.title || null,
       body: input.body || null,
       ...(input.published_at ? { published_at: new Date(input.published_at).toISOString() } : {}),
+      show_published_time: input.show_published_time,
       is_published: input.is_published,
       links: input.links,
       slideshow_interval: clampSlideshowInterval(input.slideshow_interval),

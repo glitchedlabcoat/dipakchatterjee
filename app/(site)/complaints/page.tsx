@@ -5,7 +5,7 @@ import ComplaintForm from "@/components/complaints/ComplaintForm";
 import { createClient } from "@/utils/supabase/server";
 
 export const metadata = {
-  title: "Submit a Complaint — Dipak Chatterjee",
+  title: "Submit a Complaint",
   description: "File a complaint with Dipak Chatterjee's office and get a reference number for follow-up.",
 };
 
