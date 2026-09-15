@@ -86,11 +86,21 @@ export function getEmbedInfo(rawUrl: string | null | undefined): EmbedInfo | nul
   }
 
   if (host === "facebook.com" || host === "fb.watch") {
-    const isReel = /\/reel\//.test(url.pathname);
+    // Modern "Share" button links use /share/r/<id> (Reel), /share/v/<id>
+    // (video), and /share/p/<id> (post/photo) — as common today as the
+    // older /reel/<id>, /<page>/videos/<id>, /watch/?v=<id> permalink
+    // shapes, and previously NOT recognized here at all, silently
+    // misclassifying every /share/r/ Reel as a plain post (wrong XFBML
+    // plugin downstream in components/embeds/FacebookEmbed.tsx — fb-post
+    // can't render a video/Reel href, fb-video can).
+    const isReel = /\/reel\//.test(url.pathname) || /^\/share\/r\//.test(url.pathname);
     // fb.watch shortlinks resolve to either a regular video or a reel,
     // and there's no way to tell from the URL alone — default those to
     // horizontal, the more common case for shared links.
-    const isVideo = /\/videos\/|\/reel\/|\/watch\/?\?/.test(url.pathname + url.search) || host === "fb.watch";
+    const isVideo =
+      /\/videos\/|\/reel\/|\/watch\/?\?/.test(url.pathname + url.search) ||
+      /^\/share\/[rv]\//.test(url.pathname) ||
+      host === "fb.watch";
     const plugin = isVideo ? "video" : "post";
     const href = encodeURIComponent(rawUrl);
     return {

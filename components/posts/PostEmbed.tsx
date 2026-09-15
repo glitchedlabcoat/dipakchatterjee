@@ -48,7 +48,11 @@ export default function PostEmbed({ embed, sourceUrl }: { embed: EmbedInfo; sour
   const [failed, setFailed] = useState(false);
 
   if (embed.provider === "facebook") {
-    return <FacebookEmbed url={sourceUrl} />;
+    // lib/embed.ts sets orientation "vertical" (Reel) or "horizontal"
+    // (regular video) for anything video-shaped, and "auto" only for a
+    // plain post/photo — reusing that classification here to pick
+    // between XFBML's fb-video and fb-post plugins (see FacebookEmbed).
+    return <FacebookEmbed url={sourceUrl} isVideo={embed.orientation !== "auto"} />;
   }
 
   if (failed) {

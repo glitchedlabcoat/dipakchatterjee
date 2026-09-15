@@ -13,20 +13,36 @@
 // ID/Secret fields are unrelated to this and stay in place for future
 // use once verified).
 //
+// XFBML has two DISTINCT plugins, not one: fb-post (text/photo posts)
+// and fb-video (videos and Reels) — handing a video/Reel permalink to
+// fb-post is a documented no-op/failure on Meta's side (the plugin
+// simply doesn't know how to resolve that href), which is exactly why
+// "some embeds work, most don't" before this fix: every plain post
+// rendered fine, every Reel/video silently failed. `isVideo` (derived
+// from lib/embed.ts's own isReel/isVideo classification via
+// `embed.orientation !== "auto"` in PostEmbed.tsx) picks the right one.
+//
 // Every requirement here comes from Meta's own XFBML integration docs:
 //   - A single #fb-root element must exist in the page, created once
 //     and shared across every embed instance on it — not one per post.
 //   - The SDK script (connect.facebook.net/en_US/sdk.js#xfbml=1) loads
 //     once; next/script's `id` prop dedupes that automatically across
 //     multiple FacebookEmbed instances.
-//   - window.FB.XFBML.parse() must be called any time new .fb-post
-//     markup is added to the DOM *after* the SDK's own initial parse —
-//     which is exactly what happens on every client-side navigation
-//     between posts in the App Router, since Next never reloads the
-//     page. next/script's `onReady` (unlike `onLoad`, which only ever
-//     fires once) covers this: it re-fires on every mount of a
-//     component using this script id, even when the script itself was
-//     already loaded by an earlier instance.
+//   - window.FB.XFBML.parse() must be called any time new fb-post/
+//     fb-video markup is added to the DOM *after* the SDK's own initial
+//     parse — which is exactly what happens on every client-side
+//     navigation between posts in the App Router, since Next never
+//     reloads the page. next/script's `onReady` (unlike `onLoad`, which
+//     only ever fires once) covers this: it re-fires on every mount of
+//     a component using this script id, even when the script itself
+//     was already loaded by an earlier instance.
+//
+// Known remaining limitation: even with the correct fb-video plugin,
+// some Reels still fail to render — Meta's plugin support for Reels
+// specifically (as opposed to regular /videos/ uploads) has been
+// inconsistent platform-wide since Reels launched, independent of
+// anything this app controls. The graceful "View on Facebook" fallback
+// below is what a visitor sees when that happens.
 
 "use client";
 
@@ -53,9 +69,20 @@ function ensureFbRoot() {
   document.body.insertBefore(root, document.body.firstChild);
 }
 
-export default function FacebookEmbed({ url, width = 500 }: { url: string; width?: number }) {
+export default function FacebookEmbed({
+  url,
+  isVideo = false,
+  width,
+}: {
+  url: string;
+  isVideo?: boolean;
+  width?: number;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cleanUrl = sanitizeFacebookUrl(url);
+  // Reels/videos read better narrower (closer to their natural portrait
+  // shape) than the 500px default that suits a horizontal post/photo.
+  const resolvedWidth = width ?? (isVideo ? 360 : 500);
 
   useEffect(() => {
     ensureFbRoot();
@@ -96,7 +123,18 @@ export default function FacebookEmbed({ url, width = 500 }: { url: string; width
         strategy="afterInteractive"
         onReady={() => window.FB?.XFBML?.parse(containerRef.current ?? undefined)}
       />
-      <div key={cleanUrl} className="fb-post" data-href={cleanUrl} data-width={width} data-show-text="true" />
+      {isVideo ? (
+        <div
+          key={cleanUrl}
+          className="fb-video"
+          data-href={cleanUrl}
+          data-width={resolvedWidth}
+          data-show-text="false"
+          data-allowfullscreen="true"
+        />
+      ) : (
+        <div key={cleanUrl} className="fb-post" data-href={cleanUrl} data-width={resolvedWidth} data-show-text="true" />
+      )}
     </div>
   );
 }
