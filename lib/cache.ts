@@ -37,7 +37,24 @@
 import { revalidateTag, unstable_cache } from "next/cache";
 import { createPublicClient } from "@/utils/supabase/public";
 
+// Coarse, whole-site tag — still applied to every cached public read
+// below alongside its granular tag(s), so revalidatePublicPages() stays
+// a correct (if blunt) "flush everything" fallback for any admin
+// mutation that doesn't yet have its own targeted revalidateTag() call.
 export const PUBLIC_CACHE_TAG = "public-content";
+
+// Granular tags: an admin mutation that only touches one of these calls
+// revalidateTag() with the matching tag instead of PUBLIC_CACHE_TAG, so
+// unrelated cached reads (a different post, or settings when a post
+// changes) are left untouched and keep serving from cache — no
+// Supabase egress — until they actually expire or something that
+// actually affects them changes. See lib/queries/*.ts for what's tagged
+// with which, and app/admin/(protected)/{settings,posts}/actions.ts for
+// the mutations that call revalidateTag() with them.
+export const TAG_SETTINGS = "site-settings";
+export const TAG_POSTS_LIST = "posts-list";
+export const TAG_POST_ITEM = (id: string) => `post-${id}`;
+export const TAG_SECTIONS = "homepage-sections";
 
 export function revalidatePublicPages() {
   // Next 16's revalidateTag requires a second "profile" argument.
@@ -47,6 +64,13 @@ export function revalidatePublicPages() {
   // get the old "next request is a blocking cache miss" behavior, so an
   // admin's save is reflected on the very next public page load.
   revalidateTag(PUBLIC_CACHE_TAG, { expire: 0 });
+}
+
+// Same immediate-flush semantics as revalidatePublicPages() above, for
+// a single granular tag — use this from a mutation that only touched
+// one kind of content (see TAG_* above) so everything else stays cached.
+export function revalidatePublicTag(tag: string) {
+  revalidateTag(tag, { expire: 0 });
 }
 
 // --- Cache Efficiency telemetry (Egress Monitor, /admin/egress) -----------
@@ -115,4 +139,48 @@ export function createTrackedCache<Args extends unknown[], T>(
     }
     return data;
   };
+}
+
+// For a cached read whose tag depends on the argument it's called with
+// — e.g. one TAG_POST_ITEM(id) tag per post — rather than a fixed set
+// of tags decided once up front. `unstable_cache`'s own `tags` option
+// can't vary per call: it's baked in at the moment `unstable_cache(fn,
+// keyParts, options)` is invoked, and createTrackedCache above calls
+// that exactly once, reusing the same wrapper (and its `tags`) for
+// every subsequent call regardless of arguments. This instead builds
+// and immediately calls a *fresh* `unstable_cache` wrapper every time,
+// with that call's own tags baked into *this* wrapper. That's safe:
+// Next derives the persistent cache key from `keyParts` plus the
+// (textually identical, since it's the same function literal below)
+// stringified `fn`, not from JS closure/object identity — so repeated
+// calls with the same `keyParts` (which must include whatever varies
+// the tag, e.g. the id) still correctly hit the same cache entry across
+// separate `unstable_cache()` constructions.
+//
+// Hit/miss detection is correspondingly simpler than createTrackedCache's
+// counter/stamp trick: since `fn` here is a fresh closure scoped to this
+// one call, a plain local flag it sets is unambiguous — no risk of a
+// concurrent call for a *different* argument (and therefore a different
+// cache key) racing it, the way a flag shared across every call to one
+// long-lived wrapper could.
+export async function trackedCacheRead<T>(
+  route: string,
+  fn: () => Promise<T>,
+  keyParts: string[],
+  options: { revalidate: number; tags: string[] }
+): Promise<T> {
+  let ranFn = false;
+
+  const cached = unstable_cache(
+    async () => {
+      ranFn = true;
+      return fn();
+    },
+    keyParts,
+    options
+  );
+
+  const data = await cached();
+  void recordCacheEvent(route, !ranFn, Buffer.byteLength(JSON.stringify(data)));
+  return data;
 }

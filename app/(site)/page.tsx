@@ -28,8 +28,10 @@
 // that unified admin list (see lib/homepage-layout.ts).
 
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
-import type { CtaButton, FeatureWithMedia, Organization, Phase, PostWithMedia, SiteSettings } from "@/types/domain";
+import { PUBLIC_CACHE_TAG, TAG_SECTIONS, createTrackedCache } from "@/lib/cache";
+import { getSiteSettings } from "@/lib/queries/settings";
+import { getPostsList } from "@/lib/queries/posts";
+import type { CtaButton, FeatureWithMedia, Organization, Phase, SiteSettings } from "@/types/domain";
 import FeatureSection from "@/components/features/FeatureSection";
 import PostsFeed from "@/components/posts/PostsFeed";
 import PhaseEntry from "@/components/phases/PhaseEntry";
@@ -58,51 +60,48 @@ const FALLBACK_BODY =
 // controls route/HTML caching, not the `unstable_cache` fetch below.
 export const dynamic = "force-dynamic";
 
-// See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
-// the data-fetch layer (unstable_cache) rather than via page-level ISR.
-const getHomepageData = createTrackedCache(
-  "/",
+// Features/Phases/Organizations/CTA buttons — the homepage's
+// "sections" content, tagged TAG_SECTIONS. Settings and the posts feed
+// come from their own shared, separately-tagged caches below (see
+// lib/queries/settings.ts and lib/queries/posts.ts) so an admin save to
+// any one of settings/posts/sections only busts that one's cache entry,
+// not the other two. See app/(site)/layout.tsx and lib/cache.ts for why
+// this is cached at the data-fetch layer (unstable_cache) rather than
+// via page-level ISR.
+const getHomepageSections = createTrackedCache(
+  "/:sections",
   async () => {
     const supabase = createPublicClient();
 
-    const { data: settings } = await supabase.from("site_settings").select("*").eq("id", "default").single();
-    const notableWorksLimit = settings?.notable_works_limit ?? 6;
+    const [{ data: features }, { data: phases }, { data: organizations }, { data: ctaButtons }] = await Promise.all([
+      supabase
+        .from("features")
+        .select("*, feature_media(*)")
+        .eq("is_published", true)
+        .order("display_order", { ascending: true })
+        .order("display_order", { foreignTable: "feature_media", ascending: true }),
+      supabase
+        .from("phases")
+        .select("*")
+        .eq("is_published", true)
+        .order("sort_order", { ascending: true }),
+      supabase.from("organizations").select("*").order("display_order", { ascending: true }),
+      supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
+    ]);
 
-    const [{ data: features }, { data: posts }, { data: phases }, { data: organizations }, { data: ctaButtons }] =
-      await Promise.all([
-        supabase
-          .from("features")
-          .select("*, feature_media(*)")
-          .eq("is_published", true)
-          .order("display_order", { ascending: true })
-          .order("display_order", { foreignTable: "feature_media", ascending: true }),
-        supabase
-          .from("posts")
-          .select("*, post_media(*)")
-          .eq("is_published", true)
-          .order("is_pinned", { ascending: false })
-          .order("published_at", { ascending: false })
-          .order("created_at", { ascending: false })
-          .order("display_order", { foreignTable: "post_media", ascending: true })
-          .limit(notableWorksLimit),
-        supabase
-          .from("phases")
-          .select("*")
-          .eq("is_published", true)
-          .order("sort_order", { ascending: true }),
-        supabase.from("organizations").select("*").order("display_order", { ascending: true }),
-        supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
-      ]);
-
-    return { settings, features, posts, phases, organizations, ctaButtons };
+    return { features, phases, organizations, ctaButtons };
   },
-  ["homepage"],
-  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+  ["homepage-sections"],
+  { revalidate: 60, tags: [TAG_SECTIONS, PUBLIC_CACHE_TAG] }
 );
 
 export default async function HomePage() {
-  const { settings, features, posts, phases, organizations, ctaButtons } = await getHomepageData();
+  const [settings, { features, phases, organizations, ctaButtons }] = await Promise.all([
+    getSiteSettings(),
+    getHomepageSections(),
+  ]);
   const s = settings as SiteSettings | null;
+  const { posts } = await getPostsList({ page: 1, pageSize: s?.notable_works_limit ?? 6 });
 
   const headline = s?.hero_headline || FALLBACK_HEADLINE;
   const body = s?.hero_body || FALLBACK_BODY;
@@ -178,7 +177,7 @@ export default async function HomePage() {
 
         if (key === POSTS_SECTION_KEY) {
           if (s?.show_posts_feed_section === false) return null;
-          return <PostsFeed key={key} posts={(posts as PostWithMedia[]) ?? []} />;
+          return <PostsFeed key={key} posts={posts} />;
         }
 
         const featureId = featureIdFromKey(key);

@@ -18,18 +18,33 @@ import OrganizationsManager from "./OrganizationsManager";
 import ThemeColorForm from "./ThemeColorForm";
 import CtaButtonsManager from "./CtaButtonsManager";
 import BrandingTextForm from "./BrandingTextForm";
-import BrowserTabSettingsForm from "./BrowserTabSettingsForm";
+import SeoSnippetForm from "./SeoSnippetForm";
 import FooterBlocksManager from "./FooterBlocksManager";
 import SocialLinksManager from "./SocialLinksManager";
 import HeaderNavigationManager from "./HeaderNavigationManager";
 import NotableWorksLimitControl from "./NotableWorksLimitControl";
 import UsersManager from "./UsersManager";
 import SettingsTabs from "./SettingsTabs";
+import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, isSettingsTabId } from "@/lib/settings-nav";
 import type { Profile } from "@/types/domain";
 
-export const metadata: Metadata = {
-  title: "Settings - Dashboard | Dipak Chatterjee",
-};
+type SettingsSearchParams = { tab?: string };
+
+function resolveTab(tab: string | undefined) {
+  return isSettingsTabId(tab) ? tab : DEFAULT_SETTINGS_TAB;
+}
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<SettingsSearchParams>;
+}): Promise<Metadata> {
+  const { tab } = await searchParams;
+  const active = resolveTab(tab);
+  const titleLabel = SETTINGS_TABS.find((t) => t.id === active)?.titleLabel ?? "Settings";
+
+  return { title: `${titleLabel} - Dashboard | Dipak Chatterjee` };
+}
 
 function SettingsMessage({ heading, body }: { heading: string; body: string }) {
   return (
@@ -41,7 +56,15 @@ function SettingsMessage({ heading, body }: { heading: string; body: string }) {
   );
 }
 
-export default async function SettingsPage() {
+export default async function SettingsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SettingsSearchParams>;
+}) {
+  const { tab } = await searchParams;
+  const activeTab = resolveTab(tab);
+  const activeMeta = SETTINGS_TABS.find((t) => t.id === activeTab)!;
+
   const supabase = await createClient();
 
   // Auth check and profile lookup are wrapped: a transient failure here
@@ -129,16 +152,17 @@ export default async function SettingsPage() {
   return (
     <div className="max-w-2xl">
       <p className="text-sm font-semibold text-saffron-600 mb-2">Settings</p>
-      <h1 className="font-display text-3xl text-navy-900 mb-1">Landing</h1>
-      <p className="text-sm text-ink-600 mb-8">
-        The hero section, images, colors, and affiliated organizations shown on the public
-        homepage.
-      </p>
+      <h1 className="font-display text-3xl text-navy-900 mb-1">{activeMeta.heading}</h1>
+      <p className="text-sm text-ink-600 mb-8">{activeMeta.description}</p>
 
       <SettingsTabs
+        active={activeTab}
         general={
           <>
-            <BrowserTabSettingsForm siteTitle={s?.site_title ?? "Janatar Dipak"} />
+            <SeoSnippetForm
+              siteTitle={s?.site_title ?? "Janatar Dipak"}
+              metaDescription={s?.meta_description ?? ""}
+            />
             <BrandingTextForm settings={s} />
             <FooterBlocksManager blocks={(footerBlocks as FooterBlockWithLinks[]) ?? []} />
             <SocialLinksManager links={(socialLinks as SocialLink[]) ?? []} />

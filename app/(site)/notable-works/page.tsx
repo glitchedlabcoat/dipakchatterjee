@@ -9,8 +9,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
-import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
+import { getPostsList } from "@/lib/queries/posts";
 import type { PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
 import { formatPostDate } from "@/lib/post-date";
@@ -20,32 +19,6 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 12;
-
-// See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
-// the data-fetch layer (unstable_cache) rather than via page-level ISR.
-// Keyed by page number so each page of results gets its own cache entry.
-const getNotableWorksPage = createTrackedCache(
-  "/notable-works",
-  async (page: number) => {
-    const supabase = createPublicClient();
-    const from = (page - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    const { data: posts, count } = await supabase
-      .from("posts")
-      .select("*, post_media(*)", { count: "exact" })
-      .eq("is_published", true)
-      .order("is_pinned", { ascending: false })
-      .order("published_at", { ascending: false })
-      .order("created_at", { ascending: false })
-      .order("display_order", { foreignTable: "post_media", ascending: true })
-      .range(from, to);
-
-    return { posts, count };
-  },
-  ["notable-works"],
-  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
-);
 
 const EXCERPT_LENGTH = 140;
 function excerpt(body: string) {
@@ -95,10 +68,9 @@ export default async function NotableWorksPage({
   const { page: pageParam } = await searchParams;
   const page = Math.max(1, parseInt(pageParam ?? "1", 10) || 1);
 
-  const { posts, count } = await getNotableWorksPage(page);
+  const { posts: postList, count } = await getPostsList({ page, pageSize: PAGE_SIZE });
 
-  const postList = (posts as PostWithMedia[]) ?? [];
-  const totalPages = Math.max(1, Math.ceil((count ?? 0) / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(count / PAGE_SIZE));
 
   return (
     <main className="bg-paper-100 min-h-screen">

@@ -19,14 +19,12 @@
 //     instead.
 //   - Neither an embed nor uploaded media: the text renders full-width.
 
-import { cache } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ExternalLink, ArrowLeft } from "lucide-react";
-import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
+import { getPostById } from "@/lib/queries/posts";
 import type { PostLink, PostWithMedia } from "@/types/domain";
 import MediaPlayer from "@/components/MediaPlayer";
 import PostEmbed from "@/components/posts/PostEmbed";
@@ -35,40 +33,19 @@ import { getEmbedInfo, type EmbedInfo } from "@/lib/embed";
 import { formatPostDate } from "@/lib/post-date";
 import { truncateTitle } from "@/lib/truncate-title";
 
-// See app/(site)/layout.tsx and lib/cache.ts for why this is cached at
-// the data-fetch layer (unstable_cache) rather than via page-level ISR.
-// Wrapped in React's `cache()` so generateMetadata and PostPage below
-// (both called once per request for the same id) share a single call
-// instead of two.
-const getPublishedPost = cache(
-  createTrackedCache(
-    "/posts/[id]",
-    async (id: string) => {
-      const supabase = createPublicClient();
-      const { data: post } = await supabase
-        .from("posts")
-        .select("*, post_media(*)")
-        .eq("id", id)
-        .eq("is_published", true)
-        .order("display_order", { foreignTable: "post_media", ascending: true })
-        .single();
-      return post;
-    },
-    ["post"],
-    { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
-  )
-);
-
 export async function generateMetadata({
   params,
 }: {
   params: Promise<{ id: string }>;
 }): Promise<Metadata> {
   const { id } = await params;
-  const post = await getPublishedPost(id);
+  // getPostById (lib/queries/posts.ts) is itself wrapped in React's
+  // `cache()`, so this and PostPage below (both called once per request
+  // for the same id) already share a single call.
+  const post = await getPostById(id);
   if (!post) return {};
 
-  return { title: truncateTitle((post as PostWithMedia).title || "Update") };
+  return { title: truncateTitle(post.title || "Update") };
 }
 
 function buttonLabel(link: PostLink) {
@@ -109,11 +86,11 @@ function MediaGallery({
 
 export default async function PostPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const post = await getPublishedPost(id);
+  const post = await getPostById(id);
 
   if (!post) notFound();
 
-  const typedPost = post as PostWithMedia;
+  const typedPost = post;
   const links = (typedPost.links as unknown as PostLink[] | null) ?? [];
   const buttonLinks = links.filter((l) => l.type === "button");
 

@@ -4,8 +4,18 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
-import { revalidatePublicPages } from "@/lib/cache";
+import { TAG_SETTINGS, revalidatePublicPages, revalidatePublicTag } from "@/lib/cache";
 import { SITE_BUCKET } from "@/types/domain";
+
+// Every `site_settings` mutation below revalidates just TAG_SETTINGS
+// rather than the whole public cache (revalidatePublicPages()) — see
+// lib/queries/settings.ts for the single cached read this targets.
+// Organizations/CTA buttons further down are a different table (no
+// dedicated tag for them yet — see TAG_SECTIONS in lib/cache.ts) so
+// those keep the coarser flush.
+function revalidateSettings() {
+  revalidatePublicTag(TAG_SETTINGS);
+}
 
 type ImageKind = "hero" | "avatar";
 
@@ -46,7 +56,7 @@ export async function updateSiteImage(
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export async function updateHomepageSectionVisibility(key: "organizations" | "posts", visible: boolean) {
@@ -69,7 +79,7 @@ export async function updateHomepageSectionVisibility(key: "organizations" | "po
 
   revalidatePath("/admin/settings");
   revalidatePath("/admin/arrangement");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export type LandingContentInput = {
@@ -102,7 +112,7 @@ export async function updateLandingContent(input: LandingContentInput) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export async function updateNotableWorksLimit(value: number) {
@@ -124,7 +134,7 @@ export async function updateNotableWorksLimit(value: number) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export async function updateOrgMaxPerRow(value: number) {
@@ -140,7 +150,7 @@ export async function updateOrgMaxPerRow(value: number) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export type BrandingTextInput = {
@@ -177,18 +187,30 @@ export async function updateBrandingText(input: BrandingTextInput) {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
-export async function updateSiteTitle(value: string) {
+export type SeoSettingsInput = {
+  site_title: string;
+  meta_description: string;
+};
+
+// Drives both the browser tab <title> and the Google search snippet
+// (title + description) via app/(site)/layout.tsx's generateMetadata —
+// see SeoSnippetForm.tsx for the live preview shown alongside this.
+export async function updateSeoSettings(input: SeoSettingsInput) {
   const { supabase, user } = await requireAdmin();
 
-  const siteTitle = value.trim();
-  if (!siteTitle) throw new Error("Browser tab title can't be blank.");
+  const siteTitle = input.site_title.trim();
+  if (!siteTitle) throw new Error("Meta title can't be blank.");
 
   const { error } = await supabase
     .from("site_settings")
-    .update({ site_title: siteTitle, updated_at: new Date().toISOString() })
+    .update({
+      site_title: siteTitle,
+      meta_description: input.meta_description.trim() || null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", "default");
 
   if (error) throw new Error(error.message);
@@ -196,11 +218,11 @@ export async function updateSiteTitle(value: string) {
   await logDashboardActivity(supabase, user, {
     action: "UPDATE_SETTINGS",
     entityType: "settings",
-    details: `Updated browser tab title to "${siteTitle}"`,
+    details: `Updated SEO snippet (title "${siteTitle}")`,
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export async function createOrganization(input: {
@@ -365,7 +387,7 @@ export async function updateThemeColors(input: {
   });
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }
 
 export async function createCtaButton(input: { label: string; url: string; color?: string }) {
@@ -466,5 +488,5 @@ export async function removeSiteImage(kind: ImageKind) {
   }
 
   revalidatePath("/admin/settings");
-  revalidatePublicPages();
+  revalidateSettings();
 }

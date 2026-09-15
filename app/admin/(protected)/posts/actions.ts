@@ -5,8 +5,19 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
-import { revalidatePublicPages } from "@/lib/cache";
+import { TAG_POST_ITEM, TAG_POSTS_LIST, revalidatePublicTag } from "@/lib/cache";
 import { POST_BUCKET, type MediaKind, type PostLink } from "@/types/domain";
+
+// Every mutation below changes either which posts are published/how
+// they're ordered (-> TAG_POSTS_LIST) or one specific post's own
+// content (-> TAG_POST_ITEM(id)) — see lib/queries/posts.ts for the
+// reads tagged with these. Deliberately not revalidatePublicPages():
+// that would also flush the separately-tagged settings and
+// homepage-sections caches, which nothing here touches.
+function revalidatePost(id: string) {
+  revalidatePublicTag(TAG_POST_ITEM(id));
+  revalidatePublicTag(TAG_POSTS_LIST);
+}
 
 export type PostFormInput = {
   title: string;
@@ -56,7 +67,7 @@ export async function createPost(input: PostFormInput) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePublicPages();
+  revalidatePublicTag(TAG_POSTS_LIST);
   redirect(`/admin/posts/${data.id}`);
 }
 
@@ -87,7 +98,7 @@ export async function updatePost(id: string, input: PostFormInput) {
 
   revalidatePath("/admin/posts");
   revalidatePath(`/admin/posts/${id}`);
-  revalidatePublicPages();
+  revalidatePost(id);
 }
 
 export async function deletePost(id: string) {
@@ -117,7 +128,7 @@ export async function deletePost(id: string) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePublicPages();
+  revalidatePost(id);
 }
 
 export async function togglePostPublished(id: string, is_published: boolean) {
@@ -131,7 +142,7 @@ export async function togglePostPublished(id: string, is_published: boolean) {
   if (error) throw new Error(error.message);
 
   revalidatePath("/admin/posts");
-  revalidatePublicPages();
+  revalidatePost(id);
 }
 
 export async function togglePostPinned(id: string, is_pinned: boolean) {
@@ -154,7 +165,7 @@ export async function togglePostPinned(id: string, is_pinned: boolean) {
   });
 
   revalidatePath("/admin/posts");
-  revalidatePublicPages();
+  revalidatePost(id);
 }
 
 export async function addPostMedia(
@@ -187,7 +198,7 @@ export async function addPostMedia(
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePublicPages();
+  revalidatePost(postId);
 
   return { id: data.id };
 }
@@ -209,7 +220,7 @@ export async function deletePostMedia(postId: string, mediaId: string) {
   if (error) throw new Error(error.message);
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePublicPages();
+  revalidatePost(postId);
 }
 
 export async function reorderPostMedia(postId: string, orderedIds: string[]) {
@@ -222,7 +233,7 @@ export async function reorderPostMedia(postId: string, orderedIds: string[]) {
   );
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePublicPages();
+  revalidatePost(postId);
 }
 
 export async function updatePostThumbnail(
@@ -253,7 +264,7 @@ export async function updatePostThumbnail(
   }
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePublicPages();
+  revalidatePost(postId);
 }
 
 export async function removePostThumbnail(postId: string) {
@@ -277,5 +288,5 @@ export async function removePostThumbnail(postId: string) {
   }
 
   revalidatePath(`/admin/posts/${postId}`);
-  revalidatePublicPages();
+  revalidatePost(postId);
 }

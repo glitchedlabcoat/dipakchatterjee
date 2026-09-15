@@ -5,12 +5,16 @@
 // group — adds no URL segment. Deliberately excludes /admin/*, which has
 // its own layout, chrome, and fixed branding.
 //
-// Data comes through getSiteChrome() below — an `unstable_cache`-wrapped
-// read using the cookie-free public client (see utils/supabase/public.ts
-// and lib/cache.ts for why: this site can't use page-level ISR since
+// Data comes through getSiteSettings() (lib/queries/settings.ts) and
+// getSiteChrome() below — both `unstable_cache`-wrapped reads using the
+// cookie-free public client (see utils/supabase/public.ts and
+// lib/cache.ts for why: this site can't use page-level ISR since
 // proxy.ts's per-request CSP nonce forces every route dynamic, so
-// caching happens at the data-fetch layer instead). Cached for 60s,
-// busted instantly by revalidatePublicPages() from any Settings save.
+// caching happens at the data-fetch layer instead). Cached for 60s;
+// settings are busted instantly and specifically by revalidateTag(TAG_SETTINGS)
+// from any Settings save (see app/admin/(protected)/settings/actions.ts),
+// leaving footer/social/nav/header (getSiteChrome, below) untouched by a
+// settings-only change.
 //
 // DO NOT REMOVE `dynamic = "force-dynamic"` below. Before the cookie-free
 // client, every (site) page called cookies() somewhere (via the old
@@ -18,8 +22,8 @@
 // "DynamicServerError" signal it catches internally during its
 // build-time static-eligibility probe — silently marking the route
 // dynamic without actually running the fetch. The cookie-free client
-// gives Next no such signal, so it instead *fully executes* getSiteChrome()
-// during that build-time probe for any page that looks staticable. This
+// gives Next no such signal, so it instead *fully executes* getSiteSettings()/
+// getSiteChrome() during that build-time probe for any page that looks staticable. This
 // broke CI (commit 889408d): GitHub Actions' build step has no
 // NEXT_PUBLIC_SUPABASE_URL, so the real fetch call threw "supabaseUrl is
 // required" while probing /complaints, and Next treats that as a hard
@@ -34,6 +38,7 @@ import { cache } from "react";
 import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
 import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
+import { getSiteSettings } from "@/lib/queries/settings";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
 import { darken } from "@/lib/color";
 import SiteHeader from "@/components/site/SiteHeader";
@@ -42,27 +47,26 @@ import SiteFooter from "@/components/site/SiteFooter";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_SITE_TITLE = "Janatar Dipak";
+const DEFAULT_META_DESCRIPTION =
+  "Official portfolio of Dipak Chatterjee — social worker, educationist, and community leader in Chanchal, North Malda.";
+const SITE_URL = "https://janatardipak.com";
 
-// Wrapped in React's `cache()` so generateMetadata and SiteLayout below
-// (both called once per request) share a single call into
-// createTrackedCache/unstable_cache instead of two — see "Memoizing data
-// requests" in node_modules/next/dist/docs/01-app/01-getting-started/14-metadata-and-og-images.md.
+// footer_blocks/social_links/nav_links/header_actions only — settings
+// itself now comes from the shared, TAG_SETTINGS-tagged getSiteSettings()
+// (lib/queries/settings.ts), so a settings-only save no longer busts
+// this cache entry (and vice versa). Wrapped in React's `cache()` so
+// generateMetadata and SiteLayout below (both called once per request)
+// share a single call into createTrackedCache/unstable_cache instead of
+// two — see "Memoizing data requests" in
+// node_modules/next/dist/docs/01-app/01-getting-started/14-metadata-and-og-images.md.
 const getSiteChrome = cache(
   createTrackedCache(
     "layout:chrome",
     async () => {
       const supabase = createPublicClient();
 
-      const [{ data: settings }, { data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
+      const [{ data: footerBlocks }, { data: socialLinks }, { data: navLinks }, { data: headerActions }] =
         await Promise.all([
-          // `select("*")`, not a named column list: same reasoning as
-          // nav_links below — this stays resilient if a column (e.g.
-          // site_title) hasn't reached this database yet, degrading to
-          // omitting it rather than erroring PostgREST's whole select
-          // (and, before this fix, taking avatar_url/header_name/
-          // theme colors/everything else down with it — a single
-          // not-yet-migrated column shouldn't break the entire header).
-          supabase.from("site_settings").select("*").eq("id", "default").single(),
           supabase
             .from("footer_blocks")
             .select("*, footer_links(*)")
@@ -78,7 +82,7 @@ const getSiteChrome = cache(
           supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
         ]);
 
-      return { settings, footerBlocks, socialLinks, navLinks, headerActions };
+      return { footerBlocks, socialLinks, navLinks, headerActions };
     },
     ["site-chrome"],
     { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
@@ -86,19 +90,33 @@ const getSiteChrome = cache(
 );
 
 export async function generateMetadata(): Promise<Metadata> {
-  const { settings } = await getSiteChrome();
-  const siteTitle = (settings as Pick<SiteSettings, "site_title"> | null)?.site_title?.trim() || DEFAULT_SITE_TITLE;
+  const settings = await getSiteSettings();
+  const s = settings as Pick<SiteSettings, "site_title" | "meta_description" | "hero_image_url"> | null;
+  const siteTitle = s?.site_title?.trim() || DEFAULT_SITE_TITLE;
+  const description = s?.meta_description?.trim() || DEFAULT_META_DESCRIPTION;
 
   return {
     title: {
       default: siteTitle,
       template: `%s - ${siteTitle}`,
     },
+    description,
+    openGraph: {
+      title: siteTitle,
+      description,
+      url: SITE_URL,
+      siteName: siteTitle,
+      type: "website",
+      images: s?.hero_image_url ? [{ url: s.hero_image_url }] : undefined,
+    },
   };
 }
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
-  const { settings, footerBlocks, socialLinks, navLinks, headerActions } = await getSiteChrome();
+  const [settings, { footerBlocks, socialLinks, navLinks, headerActions }] = await Promise.all([
+    getSiteSettings(),
+    getSiteChrome(),
+  ]);
 
   const s = settings as Pick<
     SiteSettings,

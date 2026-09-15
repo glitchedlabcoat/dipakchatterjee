@@ -683,6 +683,7 @@ export type Database = {
           hero_image_url: string | null
           homepage_layout: Json | null
           id: string
+          meta_description: string | null
           notable_works_limit: number
           office_address: string | null
           office_email: string | null
@@ -718,6 +719,7 @@ export type Database = {
           hero_image_url?: string | null
           homepage_layout?: Json | null
           id?: string
+          meta_description?: string | null
           notable_works_limit?: number
           office_address?: string | null
           office_email?: string | null
@@ -753,6 +755,7 @@ export type Database = {
           hero_image_url?: string | null
           homepage_layout?: Json | null
           id?: string
+          meta_description?: string | null
           notable_works_limit?: number
           office_address?: string | null
           office_email?: string | null

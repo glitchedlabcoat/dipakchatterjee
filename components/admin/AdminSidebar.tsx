@@ -8,21 +8,39 @@
 
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { X, ExternalLink, Gauge, History, Image as ImageIcon, LayoutDashboard, Layers, MessageSquareWarning, Rows3, Rss } from "lucide-react";
+import { usePathname, useSearchParams } from "next/navigation";
+import {
+  X,
+  ChevronDown,
+  ExternalLink,
+  Gauge,
+  History,
+  Image as ImageIcon,
+  LayoutDashboard,
+  Layers,
+  MessageSquareWarning,
+  Rows3,
+  Rss,
+} from "lucide-react";
 import SignOutButton from "@/components/admin/SignOutButton";
 import { useMobileSidebar } from "@/components/admin/MobileSidebarContext";
+import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, settingsTabHref } from "@/lib/settings-nav";
 
-const NAV_LINKS = [
+// Split around the Settings accordion (rendered separately below, in
+// this same spot) rather than one flat list, since Settings alone needs
+// expand/collapse + sub-route state that a plain Link doesn't.
+const NAV_LINKS_BEFORE_SETTINGS = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/features", label: "Features", icon: Layers },
   { href: "/admin/arrangement", label: "Arrangement", icon: Rows3 },
   { href: "/admin/posts", label: "Posts", icon: Rss },
   { href: "/admin/complaints", label: "Complaints", icon: MessageSquareWarning },
   { href: "/admin/egress", label: "Egress Monitor", icon: Gauge },
-  { href: "/admin/settings", label: "Settings", icon: ImageIcon },
-  { href: "/admin/logs", label: "Activity Logs", icon: History },
 ];
+
+const NAV_LINKS_AFTER_SETTINGS = [{ href: "/admin/logs", label: "Activity Logs", icon: History }];
 
 export default function AdminSidebar({
   brandName,
@@ -34,6 +52,38 @@ export default function AdminSidebar({
   userLabel: string;
 }) {
   const { isOpen, close } = useMobileSidebar();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const isSettingsRoute = pathname === "/admin/settings";
+  const activeSettingsTab = searchParams.get("tab") ?? DEFAULT_SETTINGS_TAB;
+
+  // Auto-expands whenever the current route lands inside Settings (direct
+  // link, refresh, or navigating in from elsewhere); staying collapsible
+  // by hand afterwards so it doesn't fight a deliberate collapse while
+  // already there. Adjusted during render (React's recommended pattern
+  // for state that depends on a changed prop) rather than in an effect,
+  // which would cost an extra, avoidable render pass.
+  const [settingsOpen, setSettingsOpen] = useState(isSettingsRoute);
+  const [prevIsSettingsRoute, setPrevIsSettingsRoute] = useState(isSettingsRoute);
+  if (isSettingsRoute !== prevIsSettingsRoute) {
+    setPrevIsSettingsRoute(isSettingsRoute);
+    if (isSettingsRoute) setSettingsOpen(true);
+  }
+
+  function renderLink({ href, label, icon: Icon }: { href: string; label: string; icon: typeof LayoutDashboard }) {
+    return (
+      <Link
+        key={href}
+        href={href}
+        onClick={close}
+        className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-paper-100/80 hover:bg-white/10 hover:text-white transition-colors"
+      >
+        <Icon className="w-4 h-4" />
+        {label}
+      </Link>
+    );
+  }
 
   return (
     <>
@@ -66,17 +116,51 @@ export default function AdminSidebar({
         </div>
 
         <nav className="flex-1 min-h-0 overflow-y-auto px-3 py-5 space-y-1">
-          {NAV_LINKS.map(({ href, label, icon: Icon }) => (
-            <Link
-              key={href}
-              href={href}
-              onClick={close}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-paper-100/80 hover:bg-white/10 hover:text-white transition-colors"
+          {NAV_LINKS_BEFORE_SETTINGS.map(renderLink)}
+
+          <div>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((prev) => !prev)}
+              aria-expanded={settingsOpen}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                isSettingsRoute
+                  ? "bg-white/10 text-white"
+                  : "text-paper-100/80 hover:bg-white/10 hover:text-white"
+              }`}
             >
-              <Icon className="w-4 h-4" />
-              {label}
-            </Link>
-          ))}
+              <ImageIcon className="w-4 h-4 shrink-0" />
+              <span className="flex-1 text-left">Settings</span>
+              <ChevronDown
+                className={`w-4 h-4 shrink-0 transition-transform ${settingsOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {settingsOpen && (
+              <div className="mt-1 ml-4 pl-3 border-l border-white/10 space-y-0.5">
+                {SETTINGS_TABS.map((tab) => {
+                  const active = isSettingsRoute && activeSettingsTab === tab.id;
+                  return (
+                    <Link
+                      key={tab.id}
+                      href={settingsTabHref(tab.id)}
+                      onClick={close}
+                      aria-current={active ? "page" : undefined}
+                      className={`block px-3 py-2 rounded-md text-sm transition-colors ${
+                        active
+                          ? "bg-saffron/15 text-saffron font-medium"
+                          : "text-paper-100/70 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {tab.navLabel}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {NAV_LINKS_AFTER_SETTINGS.map(renderLink)}
         </nav>
 
         <div className="shrink-0 px-3 py-5 border-t border-white/10 space-y-3">

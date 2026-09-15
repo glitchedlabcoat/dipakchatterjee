@@ -2,7 +2,8 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import ComplaintForm from "@/components/complaints/ComplaintForm";
-import { createClient } from "@/utils/supabase/server";
+import { getSiteSettings } from "@/lib/queries/settings";
+import type { SiteSettings } from "@/types/domain";
 
 export const metadata = {
   title: "Submit a Complaint",
@@ -12,14 +13,13 @@ export const metadata = {
 const DEFAULT_CONTACT_EMAIL = "dipak.chatterjee304@gmail.com";
 
 export default async function ComplaintsPage() {
-  const supabase = await createClient();
-  const { data: settings } = await supabase
-    .from("site_settings")
-    .select("office_email")
-    .eq("id", "default")
-    .single();
-
-  const contactEmail = settings?.office_email || DEFAULT_CONTACT_EMAIL;
+  // Shares the same TAG_SETTINGS-tagged cache entry as every other
+  // public page's settings read (lib/queries/settings.ts) — this page
+  // previously ran its own separate, uncached Supabase query through
+  // the cookie-based server client on every request, bypassing the
+  // cache-first architecture every other public page already uses.
+  const settings = await getSiteSettings();
+  const contactEmail = (settings as Pick<SiteSettings, "office_email"> | null)?.office_email || DEFAULT_CONTACT_EMAIL;
 
   return (
     <main className="bg-paper-100 min-h-screen transition-colors">
