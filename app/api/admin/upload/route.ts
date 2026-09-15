@@ -121,6 +121,13 @@ export async function DELETE(request: NextRequest) {
   if (!key) {
     return NextResponse.json({ error: "Missing key." }, { status: 400 });
   }
+  // Defense in depth: even though this endpoint is admin-only, only ever
+  // allow deleting something this same endpoint could have written —
+  // never an arbitrary key elsewhere in the bucket.
+  const folder = key.split("/")[0];
+  if (!ALLOWED_FOLDERS.has(folder)) {
+    return NextResponse.json({ error: "Invalid key." }, { status: 400 });
+  }
 
   try {
     await deleteFromR2(key);

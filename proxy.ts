@@ -75,6 +75,24 @@ function supabaseHost(): string {
 
 const SUPABASE_HOST = supabaseHost();
 
+// Cloudflare R2 — every admin media URL (and, once R2_COMPLAINT_BUCKET_NAME
+// is configured, complaint attachments) resolves to one of these two
+// hosts. R2_PUBLIC_DOMAIN serves the public admin-media bucket directly
+// (see lib/r2.ts); the raw r2.cloudflarestorage.com endpoint is what
+// every *presigned* URL points at instead (see lib/r2-complaints.ts) —
+// admin's signed GET for a private complaint attachment, and the
+// browser's own direct signed PUT when uploading one. Both need to be
+// allowed here or the browser blocks the request outright regardless of
+// the URL being correctly signed; CSP is enforced independently of (and
+// before) the actual HTTP response.
+const R2_PUBLIC_HOST = process.env.R2_PUBLIC_DOMAIN ?? "";
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
+const R2_ENDPOINT_HOST = R2_ACCOUNT_ID ? `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "";
+const R2_IMG_SOURCES = [R2_PUBLIC_HOST, R2_ENDPOINT_HOST]
+  .filter(Boolean)
+  .map((host) => `https://${host}`)
+  .join(" ");
+
 function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";
 
@@ -90,9 +108,9 @@ function buildCsp(nonce: string): string {
     default-src 'self';
     script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' 'unsafe-inline';
-    img-src 'self' blob: data: https://${SUPABASE_HOST};
-    media-src 'self' https://${SUPABASE_HOST};
-    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST};
+    img-src 'self' blob: data: https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
+    media-src 'self' https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
+    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${R2_ENDPOINT_HOST ? ` https://${R2_ENDPOINT_HOST}` : ""};
     font-src 'self';
     object-src 'none';
     base-uri 'self';
