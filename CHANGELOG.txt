@@ -1,6 +1,272 @@
 CHANGELOG
 =========
 
+Entries from [v1.9.0] onward use categorized bullets (Added/Changed/
+Fixed/Security). Earlier entries keep their original "Summary of what
+changed" / "Files edited" format rather than being retroactively
+rewritten.
+
+--------------------
+
+[v1.13.1] - 2026-09-15
+
+* Fixed: CSP's img-src/media-src never included the R2 host after
+  v1.13.0's migration moved every media URL in the database to R2 -
+  every image and video on the site was silently blocked by the
+  browser (not missing, not 404ing). next.config.ts's remotePatterns
+  was already correct but inert, since this codebase renders media as
+  plain img/video tags, not next/image. Added R2_PUBLIC_DOMAIN and the
+  raw {account}.r2.cloudflarestorage.com endpoint to img-src/media-src,
+  and the latter to connect-src too (needed for the complaint form's
+  direct-to-R2 presigned upload). Verified by diffing the live CSP
+  header against real rendered img src values on the homepage, a post
+  page, and /notable-works.
+* Security: Full audit of the R2/complaints surface added in v1.13.0:
+  confirmed no NEXT_PUBLIC_-prefixed secrets, and no client component
+  imports a server-only R2/service-role module (checked the whole
+  import graph). integration_settings' RLS re-confirmed admin-only
+  with no public SELECT policy.
+* Security: /api/admin/upload's DELETE rollback now validates the
+  key's folder prefix before calling deleteFromR2, rather than
+  trusting any key an authenticated admin's browser happens to send
+  (defense in depth - the endpoint was already admin-gated).
+
+Files edited (paths only):
+  - app/api/admin/upload/route.ts
+  - proxy.ts
+
+--------------------
+
+[v1.13.0] - 2026-09-15
+
+* Added: Cloudflare R2 as primary object storage for admin media
+  (site/post/feature/phase images), via a server-side upload proxy
+  (app/api/admin/upload/route.ts) - a browser can never hold R2's
+  signing key directly, so every admin media component now uploads
+  through this route instead of straight to Supabase Storage.
+* Added: One-off migration script
+  (scripts/migrate-supabase-to-r2.ts, npm run migrate:r2) that copies
+  every existing Supabase Storage file to R2 and rewrites every stored
+  URL across posts/settings/features/organizations/phases. Ran
+  successfully: 402 files transferred, 0 failed, 390 DB rows updated.
+  Nothing was deleted from Supabase Storage.
+* Added: Citizen complaint attachments also move to R2, but through a
+  separate, private bucket (R2_COMPLAINT_BUCKET_NAME) reached only via
+  presigned PUT (upload)/GET (admin view) URLs - the admin-media
+  bucket has public access enabled, and Cloudflare's public-access
+  toggle is bucket-wide, so mixing private submissions into it would
+  have exposed them.
+* Added: Client-side WebP image compression (browser-image-
+  compression) and WebCodecs-based video re-encoding for complaint
+  uploads (fast-track under 10MB as-is, otherwise re-encoded in-
+  browser to 720p/30fps/1.2Mbps via mp4-muxer, with a "trim your
+  video" prompt as the final fallback) - no file bytes pass through
+  the Next.js server for complaint media.
+* Added: Usage Metrics dashboard (/admin/usage, Simple/Advanced dual
+  mode) replacing the Egress Monitor - real R2 storage size/object
+  counts (lib/r2-usage.ts) alongside the existing Supabase egress
+  telemetry, with live R2 Class A/B operation counts as an optional
+  add-on behind CLOUDFLARE_API_TOKEN that degrades gracefully to "not
+  connected" without it.
+* Changed: Storage deletes (both admin media and complaint media)
+  route to R2 or legacy Supabase Storage per-object based on key shape
+  (lib/storage-delete.ts, lib/complaint-storage-delete.ts), since both
+  backends coexist until the old Supabase buckets are cleaned up by
+  hand.
+* Changed: /admin/egress now redirects to /admin/usage.
+* Fixed: The migration script's header-corruption bug -
+  .env.local's CRLF line endings were leaking a stray \r into R2's
+  signed Authorization header, causing every request to fail with
+  "Invalid character in header content". Fixed by sanitizing every
+  value read from .env.local (strip quotes, \r, \n) before use.
+* Security: Complaint attachments deliberately kept out of the public
+  R2 bucket (see Added, above) to avoid exposing private citizen
+  submissions through a bucket-wide public-access toggle.
+
+Files edited (paths only):
+  - .env.example
+  - app/(site)/complaints/actions.ts
+  - app/admin/(protected)/complaints/actions.ts
+  - app/admin/(protected)/complaints/page.tsx
+  - app/admin/(protected)/egress/page.tsx
+  - app/admin/(protected)/features/[id]/page.tsx
+  - app/admin/(protected)/features/actions.ts
+  - app/admin/(protected)/phases/PhasePhotosManager.tsx
+  - app/admin/(protected)/phases/actions.ts
+  - app/admin/(protected)/posts/PostThumbnailUploader.tsx
+  - app/admin/(protected)/posts/[id]/page.tsx
+  - app/admin/(protected)/posts/actions.ts
+  - app/admin/(protected)/settings/OrganizationsManager.tsx
+  - app/admin/(protected)/settings/SiteImageUploader.tsx
+  - app/admin/(protected)/settings/actions.ts
+  - app/admin/(protected)/usage/page.tsx (new)
+  - app/api/admin/upload/route.ts (new)
+  - app/api/complaints/upload-url/route.ts (new)
+  - components/admin/AdminSidebar.tsx
+  - components/admin/MediaManager.tsx
+  - components/complaints/ComplaintForm.tsx
+  - components/complaints/ComplaintMediaPicker.tsx (new)
+  - lib/cloudflare-analytics.ts (new)
+  - lib/complaint-storage-delete.ts (new)
+  - lib/complaints-cleanup.ts
+  - lib/media-upload-client.ts (new)
+  - lib/r2-complaints.ts (new)
+  - lib/r2-usage.ts (new)
+  - lib/r2.ts (new)
+  - lib/storage-delete.ts (new)
+  - lib/video-transcode.ts (new)
+  - next.config.ts
+  - package.json / package-lock.json
+  - scripts/migrate-supabase-to-r2.ts (new)
+
+--------------------
+
+[v1.12.0] - 2026-09-15
+
+* Added: Meta oEmbed API Settings card (Settings > Media & Display):
+  App ID/App Secret with a non-technical walkthrough and a Test
+  Connection button that checks credentials against Meta's Graph API.
+  Credentials live in a new integration_settings table with admin-only
+  RLS, not site_settings (whose row is public-readable via the anon
+  key).
+* Added: Real-time embed validation in the post editor's link rows:
+  unrecognized embed URLs get an inline warning with a one-click
+  "Switch to Button" action; Facebook/Instagram links get a note that
+  the source post/reel must be Public.
+* Added: Load-failure fallback on PostEmbed: a blocked/failed iframe
+  now renders a "Watch on Facebook/YouTube" card instead of silently
+  hiding.
+* Added: search_tags (site_settings) and a tag manager UI in the
+  existing Google Search Snippet card, feeding metadata.keywords and a
+  new JSON-LD @graph (WebSite + Person) in app/(site)/layout.tsx.
+* Changed: PasswordInput's required attribute made opt-out, so it can
+  be reused for an optional secret field without blocking submission
+  when empty.
+* Security: Meta App Secret isolated in the new admin-only
+  integration_settings table rather than the public-readable
+  site_settings row.
+
+Files edited (paths only):
+  - app/(site)/layout.tsx
+  - app/(site)/posts/[id]/page.tsx
+  - app/admin/(protected)/posts/PostForm.tsx
+  - app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (new)
+  - app/admin/(protected)/settings/SeoSnippetForm.tsx
+  - app/admin/(protected)/settings/actions.ts
+  - app/admin/(protected)/settings/integration-actions.ts (new)
+  - app/admin/(protected)/settings/page.tsx
+  - components/admin/PasswordInput.tsx
+  - components/posts/PostEmbed.tsx
+  - lib/settings-nav.ts
+  - supabase/migrations/20260929000000_integration_settings.sql (new)
+  - supabase/migrations/20260929010000_search_tags.sql (new)
+  - types/database.types.ts
+  - types/domain.ts
+
+--------------------
+
+[v1.11.0] - 2026-09-15
+
+* Added: Google Search Snippet editor (meta title + description, live
+  counter, Google-style preview) in Settings > General, wired into
+  app/(site)/layout.tsx's title/description/OpenGraph metadata.
+* Added: Granular cache tags (TAG_SETTINGS, TAG_POSTS_LIST,
+  TAG_POST_ITEM(id), TAG_SECTIONS) via new shared
+  lib/queries/{settings,posts}.ts reads, replacing the single coarse
+  PUBLIC_CACHE_TAG.
+* Changed: Admin Settings sidebar entry converted into a collapsible
+  sub-menu (General/Sections/Header/Hero/Media/Users); the page header
+  and browser tab title are now driven by the active tab instead of a
+  hardcoded label; dropped the now-redundant in-page tab bar.
+* Changed: Settings and posts admin actions now call targeted
+  revalidateTag() instead of the coarse flush (organizations/CTA
+  buttons intentionally stay on the coarser PUBLIC_CACHE_TAG fallback,
+  out of scope for this pass).
+* Fixed: /complaints querying Supabase directly on every request
+  instead of going through the cache-first architecture every other
+  public page already used.
+
+Files edited (paths only):
+  - app/(site)/complaints/page.tsx
+  - app/(site)/layout.tsx
+  - app/(site)/notable-works/page.tsx
+  - app/(site)/page.tsx
+  - app/(site)/posts/[id]/page.tsx
+  - app/admin/(protected)/posts/actions.ts
+  - app/admin/(protected)/settings/BrowserTabSettingsForm.tsx
+    (removed, replaced by SeoSnippetForm.tsx)
+  - app/admin/(protected)/settings/SeoSnippetForm.tsx (new)
+  - app/admin/(protected)/settings/SettingsTabs.tsx
+  - app/admin/(protected)/settings/actions.ts
+  - app/admin/(protected)/settings/page.tsx
+  - components/admin/AdminSidebar.tsx
+  - lib/cache.ts
+  - lib/queries/posts.ts (new)
+  - lib/queries/settings.ts (new)
+  - lib/settings-nav.ts (new)
+  - supabase/migrations/20260928000000_meta_description.sql (new)
+  - types/database.types.ts
+
+--------------------
+
+[v1.10.0] - 2026-09-14
+
+* Added: app/icon.tsx + public/favicon.ico ("DC" mark) as the
+  sitewide favicon.
+* Added: site_settings.site_title, driving a sitewide <title>
+  template via app/(site)/layout.tsx's generateMetadata, with a
+  dedicated "Browser Tab Settings" admin card.
+* Added: posts.show_published_time, letting the post editor toggle
+  whether a post's published time (not just date) renders publicly -
+  wired through the post detail page, notable-works archive, and
+  homepage feed.
+* Added: Word-boundary truncation for long post titles in the browser
+  tab.
+* Changed: Dashboard layout now uses h-dvh + independent scroll
+  regions instead of body scroll (h-dvh specifically so mobile browser
+  toolbars don't clip content), fixing the admin sidebar scrolling
+  away on long pages.
+* Fixed: The public site_settings query breaking the entire header
+  (avatar, theme colors, footer text) whenever a not-yet-migrated
+  column was referenced explicitly - switched to select("*") for
+  resilience.
+
+Files edited (paths only):
+  - app/(site)/complaints/page.tsx
+  - app/(site)/layout.tsx
+  - app/(site)/notable-works/page.tsx
+  - app/(site)/posts/[id]/page.tsx
+  - app/admin/(protected)/layout.tsx
+  - app/admin/(protected)/posts/PostForm.tsx
+  - app/admin/(protected)/posts/actions.ts
+  - app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (new)
+  - app/admin/(protected)/settings/actions.ts
+  - app/admin/(protected)/settings/page.tsx
+  - app/icon.tsx (new)
+  - components/admin/AdminSidebar.tsx
+  - components/posts/PostsFeed.tsx
+  - components/site/SiteHeader.tsx
+  - lib/post-date.ts (new)
+  - lib/truncate-title.ts (new)
+  - public/favicon.ico (new)
+  - supabase/migrations/20260926000000_site_title.sql (new)
+  - supabase/migrations/20260927000000_post_optional_time.sql (new)
+  - types/database.types.ts
+
+--------------------
+
+[v1.9.0] - 2026-09-13
+
+* Added: app/sitemap.ts and app/robots.ts using the App Router
+  metadata route convention, pointing crawlers to the core public
+  pages while excluding /admin.
+
+Files edited (paths only):
+  - app/robots.ts (new)
+  - app/sitemap.ts (new)
+
+--------------------
+
 [v1.8.0] - 2026-09-13
 
 Summary of what changed:
@@ -48,6 +314,8 @@ Files edited (paths only):
   - CHANGELOG.txt
   - CHANGELOG.md
 
+--------------------
+
 [v1.7.1] - 2026-09-13
 
 Summary of what changed:
@@ -78,6 +346,8 @@ Files edited (paths only):
   - app/(site)/page.tsx
   - CHANGELOG.txt
   - CHANGELOG.md
+
+--------------------
 
 [v1.7.0] - 2026-09-13
 
@@ -145,6 +415,8 @@ Files edited (paths only):
   - CHANGELOG.txt
   - CHANGELOG.md
 
+--------------------
+
 [v1.6.0] - 2026-09-13
 
 Summary of what changed:
@@ -199,6 +471,8 @@ Files edited (paths only):
   - CHANGELOG.txt
   - CHANGELOG.md
 
+--------------------
+
 [v1.0.0] - 2026-09-13
 
 Summary of what changed:
@@ -242,3 +516,271 @@ Files edited (paths only):
   - components/admin/AdminSidebar.tsx
   - CHANGELOG.txt
   - CHANGELOG.md
+
+--------------------
+
+[v0.7.0] - 2026-09-13
+
+Summary of what changed:
+  * Added Phases as a first-class content type (own admin CRUD,
+    public showcase section, photo manager), then streamlined it
+    under the existing Features model as a distinct Section Type
+    rather than a parallel system - cutting the duplicate
+    list/detail/reorder code the two had accumulated.
+  * Refactored Notable Works: dedicated /notable-works archive page,
+    post pinning, and a reworked image carousel/slideshow.
+  * Added admin presence indicators (who else is currently in the
+    dashboard) and a 24-hour rolling activity log
+    (dashboard_activity_logs).
+  * Security audit: fixed an RLS infinite-recursion bug and reviewed
+    every admin-auth policy end to end; synced
+    types/database.types.ts to match. Added dedicated error.tsx /
+    global-error.tsx boundaries for both the public site and the
+    admin dashboard so an unhandled error no longer surfaces Next's
+    generic error screen.
+  * Made the admin dashboard sidebar responsive: a slide-in mobile
+    drawer (components/admin/AdminSidebar.tsx,
+    MobileSidebarContext.tsx) replacing a desktop-only fixed
+    sidebar that previously had no mobile treatment at all.
+  * Security: resolved an RLS policy recursion on the admin/auth
+    tables and audited every admin-auth policy for correctness
+    (supabase/migrations/20260921000000_audit_and_fix_rls.sql).
+
+Files edited (paths only):
+  - app/(site)/error.tsx (new), app/global-error.tsx (new)
+  - app/(site)/notable-works/page.tsx (new), app/(site)/page.tsx,
+    app/(site)/posts/[id]/page.tsx
+  - app/admin/(protected)/error.tsx (new)
+  - app/admin/(protected)/layout.tsx, app/admin/(protected)/page.tsx
+  - app/admin/(protected)/logs/page.tsx (new)
+  - app/admin/(protected)/features/* (SectionList.tsx new,
+    FeatureList.tsx removed, GalleryIntervalControl.tsx removed)
+  - app/admin/(protected)/phases/* (added, then partly folded into
+    Features)
+  - app/admin/(protected)/posts/PostForm.tsx, PostList.tsx,
+    actions.ts
+  - app/admin/(protected)/settings/HomepageLayoutManager.tsx,
+    NotableWorksLimitControl.tsx (new), actions.ts, page.tsx,
+    user-actions.ts
+  - app/api/admin/heartbeat/route.ts
+  - components/admin/AdminPresence.tsx (new), AdminSidebar.tsx
+    (new), MobileSidebarContext.tsx (new), SidebarToggleButton.tsx
+    (new)
+  - components/phases/*, components/posts/PostEmbed.tsx,
+    PostImageCarousel.tsx, PostsFeed.tsx
+  - lib/activity-log.ts (new), lib/embed.ts, lib/homepage-layout.ts,
+    lib/relative-time.ts (new)
+  - utils/supabase/middleware.ts
+  - supabase/migrations/20260921000000_audit_and_fix_rls.sql (new),
+    20260922000000_phases_streamline_schema.sql (new),
+    20260922010000_dashboard_activity_logs.sql (new)
+  - types/database.types.ts
+
+--------------------
+
+[v0.6.0] - 2026-09-12
+
+Summary of what changed:
+  * Enforced mandatory two-step OTP login (email/SMS code required,
+    not just password) and added a MODERATOR role tier.
+  * Added a feature flag to bypass OTP (for local development), then
+    streamlined the role model and swept the whole codebase for
+    consistency ("complete codebase audit").
+  * Added self-service password change and an admin-override reset
+    for other users' passwords.
+  * Restyled organization cards - removed borders/truncation in favor
+    of circular logos and natural text wrapping - and wired the
+    existing header branding settings into the admin sidebar and the
+    login/verify-OTP screens.
+  * Fixed a Server Action redirect race on login, a profile-upsert
+    bug, and a broken new-user database trigger (handle_new_user).
+
+Files edited (paths only):
+  - app/admin/(protected)/layout.tsx,
+    app/admin/(protected)/settings/UsersManager.tsx, user-actions.ts,
+    page.tsx
+  - app/admin/login/LoginForm.tsx (new), actions.ts, page.tsx
+  - app/admin/verify-otp/VerifyOtpForm.tsx (new), page.tsx (new)
+  - components/admin/AdminResetPasswordModal.tsx (new),
+    ChangePasswordModal.tsx (new), PasswordInput.tsx (new),
+    MyContactInfoCard.tsx
+  - components/OrganizationLogos.tsx, app/globals.css
+  - lib/admin-guard.ts, lib/otp-login.ts, lib/otp-session.ts
+  - proxy.ts
+  - supabase/migrations/20260915000000_moderator_role.sql (new),
+    20260915010000_fix_is_admin_default.sql (new),
+    20260918000000_fix_handle_new_user_trigger.sql (new)
+  - types/database.types.ts
+
+--------------------
+
+[v0.5.0] - 2026-09-12
+
+Summary of what changed:
+  * Added a homepage layout builder (HomepageLayoutManager.tsx) for
+    reordering/showing-hiding homepage sections - precursor to the
+    later dedicated /admin/arrangement page (see v1.0.0).
+  * Reworked the post detail page layout: the embed now sits beside
+    the post text in two columns on desktop (stacked on mobile), with
+    uploaded images/video moved out of that column to render only in
+    the dedicated Media section below, still using the post's own
+    slideshow interval for multi-image carousels.
+  * Added dual-channel (email/SMS) login OTP, a 15-minute inactivity
+    session timer, and user/role management (UsersManager.tsx).
+  * Added editable office contact info (email/phone) and fixed the
+    single-admin migration.
+  * Fixed a media-rendering crash and added an unsaved-changes guard
+    (lib/useUnsavedChangesWarning.ts) across admin forms.
+  * Updated complaint page copy and added video thumbnail previews
+    to complaint attachments.
+
+Files edited (paths only):
+  - app/(site)/page.tsx, app/(site)/posts/[id]/page.tsx,
+    app/(site)/complaints/page.tsx
+  - app/admin/(protected)/layout.tsx, app/admin/(protected)/page.tsx
+  - app/admin/(protected)/settings/HomepageLayoutManager.tsx (new),
+    UsersManager.tsx (new), user-actions.ts (new), actions.ts,
+    page.tsx
+  - app/api/admin/heartbeat/route.ts (new)
+  - components/admin/ContactInfoModal.tsx (new), MyContactInfoCard.tsx
+    (new), SessionTimer.tsx (new), SignOutButton.tsx
+  - components/complaints/ComplaintForm.tsx
+  - lib/admin-guard.ts (new), lib/notify/email.ts (new),
+    lib/notify/sms.ts (new), lib/otp.ts (new), lib/otp-login.ts (new),
+    lib/otp-session.ts (new), lib/homepage-layout.ts (new),
+    lib/useUnsavedChangesWarning.ts (new)
+  - proxy.ts
+  - supabase/migrations/20260914000000_otp_and_user_roles.sql (new)
+
+--------------------
+
+[v0.4.0] - 2026-09-12
+
+Summary of what changed:
+  * Added per-header-action colors, a side-by-side post detail
+    layout, and per-post carousel speed control; fixed a
+    header-action save error and added dashboard nav management.
+  * Added Discord push notifications via a GitHub Actions workflow,
+    plus a local notify-discord.js script for dev-machine pushes.
+  * Fixed the dashboard crash's root cause and unified header/nav
+    settings, hero badge, and organization-wrap controls.
+  * Added an expandable Read More/Less bio component.
+  * Removed dark mode entirely, redesigned the mobile header, added
+    post thumbnails, and split the post media layout out into its
+    own section with dedicated tab settings.
+
+Files edited (paths only):
+  - app/(site)/page.tsx, app/(site)/posts/[id]/page.tsx,
+    app/(site)/complaints/page.tsx, app/(site)/layout.tsx,
+    app/layout.tsx
+  - app/admin/(protected)/posts/PostForm.tsx,
+    PostThumbnailUploader.tsx (new), [id]/page.tsx, actions.ts,
+    new/page.tsx
+  - app/admin/(protected)/settings/HeaderActionsManager.tsx,
+    NavLinksManager.tsx (new), nav-links-actions.ts (new),
+    LandingForm.tsx, CtaButtonsManager.tsx, FooterBlocksManager.tsx,
+    HeaderNavigationManager.tsx (new), OrganizationsManager.tsx,
+    SocialLinksManager.tsx, SettingsTabs.tsx (new), actions.ts,
+    page.tsx
+  - .github/workflows/discord-notify.yml (new),
+    scripts/notify-discord.js (new)
+  - components/DesktopHero.tsx (new), ExpandableBio.tsx (new),
+    MediaPlayer.tsx, OrganizationLogos.tsx,
+    complaints/ComplaintForm.tsx, features/FeatureSection.tsx,
+    posts/PostEmbed.tsx, PostsFeed.tsx
+  - header-actions.ts
+  - supabase/migrations/20260912000000_header_action_colors_and_post_interval.sql
+    (new), 20260912010000_nav_links_and_action_visibility.sql (new),
+    20260912020000_hero_badge_and_org_wrap_settings.sql (new)
+
+--------------------
+
+[v0.3.0] - 2026-09-11
+
+Summary of what changed:
+  * Added a header builder (custom header actions/buttons), post
+    embeds and image carousels, a dynamic contact email, and
+    complaint reference numbers.
+  * Added a full-color organization hover showcase and an optional
+    complaint phone number field.
+  * Scoped the Next.js dev-mode indicator to admin routes only, and
+    made the organizations display a static grid.
+  * Added root-relative section anchors with cross-page smooth
+    scrolling (components/site/AnchorAwareLink.tsx).
+
+Files edited (paths only):
+  - app/(site)/complaints/page.tsx, app/(site)/layout.tsx,
+    app/(site)/page.tsx, app/(site)/posts/[id]/page.tsx
+  - app/admin/(protected)/complaints/ComplaintDetailModal.tsx,
+    ComplaintList.tsx
+  - app/admin/(protected)/features/GalleryIntervalControl.tsx (new),
+    [id]/page.tsx, actions.ts
+  - app/admin/(protected)/layout.tsx
+  - app/admin/(protected)/posts/PostForm.tsx
+  - app/admin/(protected)/settings/BrandingTextForm.tsx,
+    HeaderActionsManager.tsx (new), header-actions.ts (new),
+    OrganizationsManager.tsx, actions.ts, page.tsx
+  - components/OrganizationLogos.tsx, PublicLifeGallery.tsx,
+    complaints/ComplaintForm.tsx, features/FeatureSection.tsx,
+    posts/PostEmbed.tsx (new), PostImageCarousel.tsx (new),
+    site/AnchorAwareLink.tsx (new), SiteFooter.tsx, SiteHeader.tsx
+  - app/globals.css
+  - lib/embed.ts (new), lib/reference.ts (new)
+  - proxy.ts
+  - supabase/migrations/20260911230000_header_actions_and_gallery_interval.sql
+    (new), 20260911240000_org_designation_and_optional_phone.sql
+    (new)
+
+--------------------
+
+[v0.2.0] - 2026-09-11
+
+Summary of what changed:
+  * Added a Render Blueprint (render.yaml) with standalone Next.js
+    output for deployment, then fixed the build (devDependencies
+    weren't installed), then removed render.yaml entirely in favor
+    of configuring the build directly in Render's dashboard.
+
+Files edited (paths only):
+  - next.config.ts
+  - render.yaml (added, then removed)
+
+--------------------
+
+[v0.1.0] - 2026-09-11
+
+Summary of what changed:
+  * Replaced the hand-authored static HTML/CSS site with the current
+    dynamic Next.js application: the public site (homepage, post
+    pages, complaint form), the full admin dashboard (auth, Features,
+    Posts, Complaints), and the initial Supabase schema/RLS/storage
+    setup. ~106 files added in one commit (0f06030) - this is the
+    actual starting point of the application this changelog
+    documents; see that commit directly for the complete file list.
+  * Added a citizen complaint retention policy: purgeExpiredComplaints()
+    (lib/complaints-cleanup.ts) permanently deletes any complaint past
+    its expires_at timestamp - row, media rows, and the underlying
+    storage files, with no "expired" state left to view. Runs both
+    inline on every admin dashboard load and via an unauthenticated
+    cron endpoint (app/api/cron/purge-complaints/route.ts, optionally
+    gated behind CRON_SECRET) for true background deletion independent
+    of an admin ever opening the dashboard.
+  * Added .env.example, .gitignore, and this project's
+    AGENTS.md/CLAUDE.md convention (read node_modules/next/dist/docs/
+    before writing code, since this is a pinned Next.js version with
+    training-data-diverging APIs).
+
+Files edited (paths only):
+  - Full application scaffold - see commit 0f06030 for the complete
+    ~106-file list. Notable additions: app/(site)/*, app/admin/*,
+    utils/supabase/{admin,client,middleware,server}.ts,
+    supabase/migrations/20260911170000_complaints.sql,
+    supabase/migrations/20260911220000_complaint_status.sql.
+
+--------------------
+
+Everything before v0.1.0 (2026-09-10 to 2026-09-11, commits
+c37fdd3-0f0de8b) was a hand-authored static HTML/CSS site predating
+this application - asset uploads, image renames, and a GitHub Pages
+deploy workflow, not itemized here. See git log for that era if
+needed.

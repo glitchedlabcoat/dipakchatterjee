@@ -1,12 +1,14 @@
 // components/posts/PostEmbed.tsx
 //
-// Responsive iframe wrapper for a recognized YouTube/Instagram/Facebook
-// embed (see lib/embed.ts). Vertical formats (Shorts/Reels) get a
-// centered 9:16 portrait frame instead of being forced into a
-// letterboxed 16:9 box; regular horizontal video keeps a locked 16:9
-// frame; everything else (a plain Instagram post, a Facebook link/post
-// embed) sizes to its own natural height since that isn't reliably one
-// aspect ratio or the other.
+// Responsive iframe wrapper for a recognized YouTube/Instagram embed
+// (see lib/embed.ts). Facebook is handled separately, by
+// components/embeds/FacebookEmbed.tsx's client-side XFBML plugin
+// instead of an iframe — see that file for why. Vertical formats
+// (Shorts/Reels) get a centered 9:16 portrait frame instead of being
+// forced into a letterboxed 16:9 box; regular horizontal video keeps a
+// locked 16:9 frame; everything else (a plain Instagram post) sizes to
+// its own natural height since that isn't reliably one aspect ratio or
+// the other.
 //
 // Graceful failure: if the iframe fails to load at all (onError — a
 // genuine network-level failure, e.g. blocked by a privacy/ad-blocking
@@ -25,6 +27,7 @@
 import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { EmbedInfo } from "@/lib/embed";
+import FacebookEmbed from "@/components/embeds/FacebookEmbed";
 
 const CONTAINER_CLASS: Record<EmbedInfo["orientation"], string> = {
   horizontal: "w-full aspect-video",
@@ -43,6 +46,10 @@ const PROVIDER_LABEL: Record<EmbedInfo["provider"], string> = {
 // land on directly).
 export default function PostEmbed({ embed, sourceUrl }: { embed: EmbedInfo; sourceUrl: string }) {
   const [failed, setFailed] = useState(false);
+
+  if (embed.provider === "facebook") {
+    return <FacebookEmbed url={sourceUrl} />;
+  }
 
   if (failed) {
     return (

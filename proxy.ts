@@ -104,19 +104,28 @@ function buildCsp(nonce: string): string {
   // strict — that's the directive that actually stops injected-script
   // XSS — so this is a deliberate, scoped trade-off, not a blanket
   // weakening of the policy.
+  // connect.facebook.net (script-src) is what serves the Facebook JS
+  // SDK loaded by components/embeds/FacebookEmbed.tsx — inert in
+  // browsers that honor 'strict-dynamic' (which ignores host allowlists
+  // entirely and instead trusts scripts injected by already-nonced
+  // script, which next/script's runtime is), but a required fallback
+  // for the browsers that don't. www.facebook.com/web.facebook.com in
+  // frame-src and www.facebook.com in connect-src are what the SDK
+  // itself needs once loaded, to actually render/fetch the embedded
+  // post.
   return `
     default-src 'self';
-    script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""};
+    script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://connect.facebook.net${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' 'unsafe-inline';
     img-src 'self' blob: data: https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
     media-src 'self' https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
-    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST}${R2_ENDPOINT_HOST ? ` https://${R2_ENDPOINT_HOST}` : ""};
+    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST} https://www.facebook.com${R2_ENDPOINT_HOST ? ` https://${R2_ENDPOINT_HOST}` : ""};
     font-src 'self';
     object-src 'none';
     base-uri 'self';
     form-action 'self';
     frame-ancestors 'none';
-    frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://www.instagram.com;
+    frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://www.facebook.com https://web.facebook.com https://www.instagram.com;
     upgrade-insecure-requests;
   `
     .replace(/\s{2,}/g, " ")
