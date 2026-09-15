@@ -429,6 +429,27 @@ export type Database = {
         }
         Relationships: []
       }
+      integration_settings: {
+        Row: {
+          id: string
+          meta_app_id: string | null
+          meta_app_secret: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          meta_app_id?: string | null
+          meta_app_secret?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          meta_app_id?: string | null
+          meta_app_secret?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       nav_links: {
         Row: {
           created_at: string
@@ -690,6 +711,7 @@ export type Database = {
           office_hours_enabled: boolean
           office_hours_text: string | null
           org_max_per_row: number
+          search_tags: string[]
           show_organizations_section: boolean
           show_phases_section: boolean
           show_posts_feed_section: boolean
@@ -726,6 +748,7 @@ export type Database = {
           office_hours_enabled?: boolean
           office_hours_text?: string | null
           org_max_per_row?: number
+          search_tags?: string[]
           show_organizations_section?: boolean
           show_phases_section?: boolean
           show_posts_feed_section?: boolean
@@ -762,6 +785,7 @@ export type Database = {
           office_hours_enabled?: boolean
           office_hours_text?: string | null
           org_max_per_row?: number
+          search_tags?: string[]
           show_organizations_section?: boolean
           show_phases_section?: boolean
           show_posts_feed_section?: boolean

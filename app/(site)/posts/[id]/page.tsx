@@ -98,11 +98,13 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   // wins; any others (or an embed link that doesn't resolve) are
   // silently ignored rather than shown as an error.
   let embed: EmbedInfo | null = null;
+  let embedSourceUrl: string | null = null;
   for (const link of links) {
     if (link.type !== "embed") continue;
     const info = getEmbedInfo(link.url);
     if (info) {
       embed = info;
+      embedSourceUrl = link.url;
       break;
     }
   }
@@ -161,9 +163,9 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
             )}
           </div>
 
-          {showEmbedBesideText && embed && (
+          {showEmbedBesideText && embed && embedSourceUrl && (
             <div>
-              <PostEmbed embed={embed} />
+              <PostEmbed embed={embed} sourceUrl={embedSourceUrl} />
             </div>
           )}
 

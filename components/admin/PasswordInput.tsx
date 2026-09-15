@@ -16,6 +16,7 @@ export default function PasswordInput({
   autoComplete,
   minLength,
   placeholder,
+  required = true,
 }: {
   label: string;
   value: string;
@@ -23,6 +24,8 @@ export default function PasswordInput({
   autoComplete?: string;
   minLength?: number;
   placeholder?: string;
+  /** Defaults to true, matching every existing caller (an actual password change/reset). Pass false for an optional secret-like field (e.g. a third-party API credential). */
+  required?: boolean;
 }) {
   const id = useId();
   const [visible, setVisible] = useState(false);
@@ -38,7 +41,7 @@ export default function PasswordInput({
           type={visible ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          required
+          required={required}
           minLength={minLength}
           placeholder={placeholder}
           autoComplete={autoComplete}

@@ -24,9 +24,10 @@ import SocialLinksManager from "./SocialLinksManager";
 import HeaderNavigationManager from "./HeaderNavigationManager";
 import NotableWorksLimitControl from "./NotableWorksLimitControl";
 import UsersManager from "./UsersManager";
+import MetaOEmbedSettingsForm from "./MetaOEmbedSettingsForm";
 import SettingsTabs from "./SettingsTabs";
 import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, isSettingsTabId } from "@/lib/settings-nav";
-import type { Profile } from "@/types/domain";
+import type { IntegrationSettings, Profile } from "@/types/domain";
 
 type SettingsSearchParams = { tab?: string };
 
@@ -109,7 +110,7 @@ export default async function SettingsPage({
     return <SettingsMessage heading="Signed out" body="Please sign in to manage site settings." />;
   }
 
-  let settings, organizations, ctaButtons, footerBlocks, socialLinks, navLinks, headerActions, profiles;
+  let settings, organizations, ctaButtons, footerBlocks, socialLinks, navLinks, headerActions, profiles, integrationSettings;
 
   try {
     [
@@ -121,6 +122,7 @@ export default async function SettingsPage({
       { data: navLinks },
       { data: headerActions },
       { data: profiles },
+      { data: integrationSettings },
     ] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", "default").single(),
       supabase.from("organizations").select("*").order("display_order", { ascending: true }),
@@ -134,6 +136,7 @@ export default async function SettingsPage({
       supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
       supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
       supabase.from("profiles").select("*").order("created_at", { ascending: true }),
+      supabase.from("integration_settings").select("*").eq("id", "default").single(),
     ]);
   } catch (err) {
     console.error("[SettingsPage] settings data load failed:", err);
@@ -162,6 +165,7 @@ export default async function SettingsPage({
             <SeoSnippetForm
               siteTitle={s?.site_title ?? "Janatar Dipak"}
               metaDescription={s?.meta_description ?? ""}
+              searchTags={s?.search_tags ?? []}
             />
             <BrandingTextForm settings={s} />
             <FooterBlocksManager blocks={(footerBlocks as FooterBlockWithLinks[]) ?? []} />
@@ -223,6 +227,11 @@ export default async function SettingsPage({
             <OrganizationsManager
               organizations={(organizations as Organization[]) ?? []}
               orgMaxPerRow={s?.org_max_per_row ?? 6}
+            />
+
+            <MetaOEmbedSettingsForm
+              appId={(integrationSettings as IntegrationSettings | null)?.meta_app_id ?? ""}
+              appSecret={(integrationSettings as IntegrationSettings | null)?.meta_app_secret ?? ""}
             />
           </>
         }

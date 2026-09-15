@@ -41,7 +41,8 @@ export const SETTINGS_TABS = [
     navLabel: "Media & Display",
     titleLabel: "Media & Display",
     heading: "Media & Display",
-    description: "Hero image, profile avatar, and affiliated organization logos shown on the public homepage.",
+    description:
+      "Hero image, profile avatar, affiliated organization logos, and the Meta oEmbed API integration used for Facebook/Instagram embeds.",
   },
   {
     id: "users",

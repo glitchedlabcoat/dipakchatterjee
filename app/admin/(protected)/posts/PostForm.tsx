@@ -2,13 +2,22 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useFieldArray, useForm, useWatch } from "react-hook-form";
+import {
+  useFieldArray,
+  useForm,
+  useWatch,
+  type Control,
+  type FieldErrors,
+  type UseFormRegister,
+  type UseFormSetValue,
+} from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Loader2, Plus, Save, Trash2 } from "lucide-react";
+import { AlertTriangle, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import type { Post, PostLink } from "@/types/domain";
 import type { PostFormInput } from "./actions";
 import { useUnsavedChangesWarning } from "@/lib/useUnsavedChangesWarning";
+import { getEmbedInfo } from "@/lib/embed";
 
 // Deliberately just "non-empty", not a strict URL() format check: an
 // embed/button link should persist whatever the admin typed even if
@@ -54,6 +63,101 @@ function newLinkId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `link-${Date.now()}`;
 }
 
+// One link row, as its own component (not inlined in the parent's
+// .map()) specifically so it can call useWatch for just this row's own
+// url/type — calling a hook conditionally inside a .map() callback in
+// the parent would violate the rules of hooks the moment a link is
+// added or removed (a changing number of hook calls between renders).
+// Each LinkRow instance's own hook calls stay stable across renders
+// regardless of how many total rows exist.
+function LinkRow({
+  index,
+  control,
+  register,
+  errors,
+  remove,
+  setValue,
+}: {
+  index: number;
+  control: Control<PostFormValues>;
+  register: UseFormRegister<PostFormValues>;
+  errors: FieldErrors<PostFormValues>;
+  remove: (index: number) => void;
+  setValue: UseFormSetValue<PostFormValues>;
+}) {
+  const url = useWatch({ control, name: `links.${index}.url` as const });
+  const type = useWatch({ control, name: `links.${index}.type` as const });
+
+  const embedInfo = type === "embed" ? getEmbedInfo(url) : null;
+  const showEmbedWarning = type === "embed" && Boolean(url?.trim()) && !embedInfo;
+  const showMetaGuidance = embedInfo?.provider === "facebook" || embedInfo?.provider === "instagram";
+
+  return (
+    <li className="rounded-md border border-line bg-paper-100 p-3">
+      <div className="flex flex-wrap items-start gap-2">
+        <div className="flex-1 min-w-[200px]">
+          <input
+            {...register(`links.${index}.url` as const)}
+            placeholder="https://..."
+            className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
+          />
+          {errors.links?.[index]?.url && (
+            <p className="text-xs text-rust mt-1">{errors.links[index]?.url?.message}</p>
+          )}
+        </div>
+
+        <select
+          {...register(`links.${index}.type` as const)}
+          className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
+        >
+          <option value="embed">Embed</option>
+          <option value="button">Button</option>
+        </select>
+
+        {type === "button" && (
+          <input
+            {...register(`links.${index}.label` as const)}
+            placeholder="View on Facebook"
+            className="w-40 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
+          />
+        )}
+
+        <button
+          type="button"
+          onClick={() => remove(index)}
+          aria-label="Remove link"
+          className="shrink-0 w-9 h-9 rounded-md border border-line bg-white flex items-center justify-center text-ink-600 hover:border-rust hover:text-rust"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
+      </div>
+
+      {showEmbedWarning && (
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-saffron-100 bg-saffron-100/70 px-3 py-2">
+          <span className="flex items-center gap-1.5 text-xs text-saffron-600">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            This link cannot be embedded directly. We recommend switching to &ldquo;Button&rdquo; mode.
+          </span>
+          <button
+            type="button"
+            onClick={() => setValue(`links.${index}.type` as const, "button", { shouldDirty: true })}
+            className="shrink-0 text-xs font-semibold text-saffron-600 underline hover:no-underline"
+          >
+            Switch to Button
+          </button>
+        </div>
+      )}
+
+      {showMetaGuidance && (
+        <p className="mt-2 text-xs text-ink-400">
+          Note: Meta embeds require the source post/reel to be set to &ldquo;Public&rdquo; 🌐 on
+          Facebook/Instagram.
+        </p>
+      )}
+    </li>
+  );
+}
+
 export default function PostForm({
   post,
   onSubmit,
@@ -69,6 +173,7 @@ export default function PostForm({
     control,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors, isDirty },
   } = useForm<PostFormValues>({
     resolver: zodResolver(postSchema),
@@ -187,48 +292,17 @@ export default function PostForm({
 
         {fields.length > 0 && (
           <ul className="space-y-2 mb-3">
-            {fields.map((field, index) => {
-              const type = field.type;
-              return (
-                <li key={field.id} className="flex flex-wrap items-start gap-2 rounded-md border border-line bg-paper-100 p-3">
-                  <div className="flex-1 min-w-[200px]">
-                    <input
-                      {...register(`links.${index}.url` as const)}
-                      placeholder="https://..."
-                      className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
-                    />
-                    {errors.links?.[index]?.url && (
-                      <p className="text-xs text-rust mt-1">{errors.links[index]?.url?.message}</p>
-                    )}
-                  </div>
-
-                  <select
-                    {...register(`links.${index}.type` as const)}
-                    className="rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
-                  >
-                    <option value="embed">Embed</option>
-                    <option value="button">Button</option>
-                  </select>
-
-                  {type === "button" && (
-                    <input
-                      {...register(`links.${index}.label` as const)}
-                      placeholder="View on Facebook"
-                      className="w-40 rounded-md border border-line bg-white px-3 py-2 text-sm text-ink focus:border-saffron focus:outline-none"
-                    />
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => remove(index)}
-                    aria-label="Remove link"
-                    className="shrink-0 w-9 h-9 rounded-md border border-line bg-white flex items-center justify-center text-ink-600 hover:border-rust hover:text-rust"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </li>
-              );
-            })}
+            {fields.map((field, index) => (
+              <LinkRow
+                key={field.id}
+                index={index}
+                control={control}
+                register={register}
+                errors={errors}
+                remove={remove}
+                setValue={setValue}
+              />
+            ))}
           </ul>
         )}
 

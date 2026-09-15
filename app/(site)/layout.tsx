@@ -91,9 +91,13 @@ const getSiteChrome = cache(
 
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getSiteSettings();
-  const s = settings as Pick<SiteSettings, "site_title" | "meta_description" | "hero_image_url"> | null;
+  const s = settings as Pick<
+    SiteSettings,
+    "site_title" | "meta_description" | "hero_image_url" | "search_tags"
+  > | null;
   const siteTitle = s?.site_title?.trim() || DEFAULT_SITE_TITLE;
   const description = s?.meta_description?.trim() || DEFAULT_META_DESCRIPTION;
+  const keywords = s?.search_tags?.length ? s.search_tags : undefined;
 
   return {
     title: {
@@ -101,6 +105,7 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s - ${siteTitle}`,
     },
     description,
+    keywords,
     openGraph: {
       title: siteTitle,
       description,
@@ -110,6 +115,45 @@ export async function generateMetadata(): Promise<Metadata> {
       images: s?.hero_image_url ? [{ url: s.hero_image_url }] : undefined,
     },
   };
+}
+
+// See node_modules/next/dist/docs/01-app/02-guides/json-ld.md: JSON-LD
+// isn't part of Next's Metadata API (that only covers <head> meta tags),
+// so it's rendered directly as a <script type="application/ld+json">
+// in the page tree instead — a non-executable script type, so it's
+// unaffected by proxy.ts's per-request nonce CSP (that only gates
+// script-src for *executable* scripts). `<` is escaped defensively per
+// that guide's own XSS warning about JSON.stringify, even though every
+// value here is admin-authored (Settings), not user/visitor input.
+function buildJsonLd(siteTitle: string, description: string, searchTags: string[]) {
+  const alternateNames = searchTags.length ? searchTags : undefined;
+  const keywords = searchTags.length ? searchTags.join(", ") : undefined;
+
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": `${SITE_URL}/#website`,
+        url: SITE_URL,
+        name: siteTitle,
+        description,
+        alternateName: alternateNames,
+        keywords,
+      },
+      {
+        "@type": "Person",
+        "@id": `${SITE_URL}/#person`,
+        name: "Dipak Chatterjee",
+        url: SITE_URL,
+        description,
+        alternateName: alternateNames,
+        keywords,
+      },
+    ],
+  };
+
+  return JSON.stringify(jsonLd).replace(/</g, "\\u003c");
 }
 
 export default async function SiteLayout({ children }: { children: React.ReactNode }) {
@@ -129,10 +173,19 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
     | "footer_copyright_name"
     | "footer_note"
     | "office_email"
+    | "site_title"
+    | "meta_description"
+    | "search_tags"
   > | null;
 
   const primary = s?.theme_primary_color || "#C1832B";
   const secondary = s?.theme_secondary_color || "#151F33";
+
+  const jsonLd = buildJsonLd(
+    s?.site_title?.trim() || DEFAULT_SITE_TITLE,
+    s?.meta_description?.trim() || DEFAULT_META_DESCRIPTION,
+    s?.search_tags ?? []
+  );
 
   return (
     <div
@@ -146,6 +199,8 @@ export default async function SiteLayout({ children }: { children: React.ReactNo
         } as React.CSSProperties
       }
     >
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
+
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:bg-navy-900 focus:text-white focus:px-4 focus:py-2 focus:rounded z-50"

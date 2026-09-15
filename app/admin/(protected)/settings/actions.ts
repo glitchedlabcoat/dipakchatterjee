@@ -193,22 +193,28 @@ export async function updateBrandingText(input: BrandingTextInput) {
 export type SeoSettingsInput = {
   site_title: string;
   meta_description: string;
+  search_tags: string[];
 };
 
-// Drives both the browser tab <title> and the Google search snippet
-// (title + description) via app/(site)/layout.tsx's generateMetadata —
-// see SeoSnippetForm.tsx for the live preview shown alongside this.
+// Drives the browser tab <title>, the Google search snippet (title +
+// description), metadata.keywords, and the JSON-LD @graph's
+// alternateName/keywords, all via app/(site)/layout.tsx's
+// generateMetadata — see SeoSnippetForm.tsx for the live preview shown
+// alongside this.
 export async function updateSeoSettings(input: SeoSettingsInput) {
   const { supabase, user } = await requireAdmin();
 
   const siteTitle = input.site_title.trim();
-  if (!siteTitle) throw new Error("Meta title can't be blank.");
+  if (!siteTitle) throw new Error("Search title can't be blank.");
+
+  const tags = input.search_tags.map((t) => t.trim()).filter(Boolean);
 
   const { error } = await supabase
     .from("site_settings")
     .update({
       site_title: siteTitle,
       meta_description: input.meta_description.trim() || null,
+      search_tags: tags,
       updated_at: new Date().toISOString(),
     })
     .eq("id", "default");
