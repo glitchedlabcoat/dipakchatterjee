@@ -65,7 +65,7 @@ export default async function EditFeaturePage({
 
       <div className="bg-white border border-line rounded-xl p-6 md:p-8">
         <MediaManager
-          bucket={FEATURE_BUCKET}
+          folder={FEATURE_BUCKET}
           entityId={id}
           media={(media as FeatureMedia[]) ?? []}
           addAction={addFeatureMedia.bind(null, id)}

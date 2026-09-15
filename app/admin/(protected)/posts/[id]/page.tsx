@@ -71,7 +71,7 @@ export default async function EditPostPage({
 
       <div className="bg-white border border-line rounded-xl p-6 md:p-8">
         <MediaManager
-          bucket={POST_BUCKET}
+          folder={POST_BUCKET}
           entityId={id}
           media={(media as PostMedia[]) ?? []}
           addAction={addPostMedia.bind(null, id)}

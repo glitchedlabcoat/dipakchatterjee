@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
 import { TAG_SETTINGS, revalidatePublicPages, revalidatePublicTag } from "@/lib/cache";
+import { deleteStoredMedia } from "@/lib/storage-delete";
 import { SITE_BUCKET } from "@/types/domain";
 
 // Every `site_settings` mutation below revalidates just TAG_SETTINGS
@@ -46,7 +47,7 @@ export async function updateSiteImage(
   if (error) throw new Error(error.message);
 
   if (oldPath) {
-    await supabase.storage.from(SITE_BUCKET).remove([oldPath]);
+    await deleteStoredMedia(supabase, SITE_BUCKET, oldPath);
   }
 
   await logDashboardActivity(supabase, user, {
@@ -318,7 +319,7 @@ export async function replaceOrganizationLogo(
   if (error) throw new Error(error.message);
 
   if (current?.logo_path) {
-    await supabase.storage.from(SITE_BUCKET).remove([current.logo_path]);
+    await deleteStoredMedia(supabase, SITE_BUCKET, current.logo_path);
   }
 
   revalidatePath("/admin/settings");
@@ -338,7 +339,7 @@ export async function deleteOrganization(id: string) {
   if (error) throw new Error(error.message);
 
   if (current?.logo_path) {
-    await supabase.storage.from(SITE_BUCKET).remove([current.logo_path]);
+    await deleteStoredMedia(supabase, SITE_BUCKET, current.logo_path);
   }
 
   revalidatePath("/admin/settings");
@@ -490,7 +491,7 @@ export async function removeSiteImage(kind: ImageKind) {
   if (error) throw new Error(error.message);
 
   if (oldPath) {
-    await supabase.storage.from(SITE_BUCKET).remove([oldPath]);
+    await deleteStoredMedia(supabase, SITE_BUCKET, oldPath);
   }
 
   revalidatePath("/admin/settings");

@@ -8,7 +8,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { uploadMediaFile, deleteUploadedMediaFile } from "@/lib/media-upload-client";
 import { PHASE_BUCKET, type PhasePhoto } from "@/types/domain";
 import DropzoneUpload from "@/components/admin/DropzoneUpload";
 import {
@@ -52,7 +52,6 @@ function sanitizeFilename(name: string) {
 }
 
 export default function PhasePhotosManager({ phaseId, photos }: { phaseId: string; photos: PhasePhoto[] }) {
-  const supabase = createClient();
   const [items, setItems] = useState(photos);
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -102,24 +101,23 @@ export default function PhasePhotosManager({ phaseId, photos }: { phaseId: strin
   async function uploadOne(entry: PendingUpload) {
     const path = `${phaseId}/${crypto.randomUUID()}-${sanitizeFilename(entry.file.name)}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(PHASE_BUCKET)
-      .upload(path, entry.file, { cacheControl: "2592000" /* 30 days */, upsert: false });
-
-    if (uploadError) {
+    let uploaded: { path: string; public_url: string };
+    try {
+      uploaded = await uploadMediaFile(entry.file, PHASE_BUCKET, path);
+    } catch (err) {
       setPending((prev) =>
-        prev.map((p) => (p.localId === entry.localId ? { ...p, status: "error", error: uploadError.message } : p))
+        prev.map((p) =>
+          p.localId === entry.localId
+            ? { ...p, status: "error", error: err instanceof Error ? err.message : "Upload failed." }
+            : p
+        )
       );
       return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(PHASE_BUCKET).getPublicUrl(path);
-
     try {
-      await addPhasePhoto(phaseId, { url: publicUrl, path });
-      setItems((prev) => [...prev, { url: publicUrl, path, caption: "", fact: "" }]);
+      await addPhasePhoto(phaseId, { url: uploaded.public_url, path: uploaded.path });
+      setItems((prev) => [...prev, { url: uploaded.public_url, path: uploaded.path, caption: "", fact: "" }]);
       setPending((prev) => prev.filter((p) => p.localId !== entry.localId));
       URL.revokeObjectURL(entry.previewUrl);
     } catch (err) {
@@ -130,7 +128,7 @@ export default function PhasePhotosManager({ phaseId, photos }: { phaseId: strin
             : p
         )
       );
-      await supabase.storage.from(PHASE_BUCKET).remove([path]);
+      await deleteUploadedMediaFile(uploaded.path);
     }
   }
 

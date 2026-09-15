@@ -13,9 +13,9 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   X,
+  Activity,
   ChevronDown,
   ExternalLink,
-  Gauge,
   History,
   Image as ImageIcon,
   LayoutDashboard,
@@ -37,7 +37,7 @@ const NAV_LINKS_BEFORE_SETTINGS = [
   { href: "/admin/arrangement", label: "Arrangement", icon: Rows3 },
   { href: "/admin/posts", label: "Posts", icon: Rss },
   { href: "/admin/complaints", label: "Complaints", icon: MessageSquareWarning },
-  { href: "/admin/egress", label: "Egress Monitor", icon: Gauge },
+  { href: "/admin/usage", label: "Usage Metrics", icon: Activity },
 ];
 
 const NAV_LINKS_AFTER_SETTINGS = [{ href: "/admin/logs", label: "Activity Logs", icon: History }];

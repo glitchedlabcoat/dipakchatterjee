@@ -3,7 +3,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useHydrated } from "@/lib/hooks/useHydrated";
-import { createClient } from "@/utils/supabase/client";
+import { uploadMediaFile, deleteUploadedMediaFile } from "@/lib/media-upload-client";
 import { SITE_BUCKET, type Organization } from "@/types/domain";
 import DropzoneUpload from "@/components/admin/DropzoneUpload";
 import DndListSkeleton from "@/components/admin/DndListSkeleton";
@@ -208,7 +208,6 @@ function SortableOrgRow({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: org.id,
   });
-  const supabase = createClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(org.name);
   const [designation, setDesignation] = useState(org.designation ?? "");
@@ -227,26 +226,22 @@ function SortableOrgRow({
     if (!file.type.startsWith("image/")) return;
     setReplacing(true);
     const path = `logos/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
-    const { error: uploadError } = await supabase.storage
-      .from(SITE_BUCKET)
-      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
-    if (uploadError) {
-      alert(uploadError.message);
+    let uploaded: { path: string; public_url: string };
+    try {
+      uploaded = await uploadMediaFile(file, SITE_BUCKET, path);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Upload failed.");
       setReplacing(false);
       return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(SITE_BUCKET).getPublicUrl(path);
-
     try {
-      await replaceOrganizationLogo(org.id, { logo_url: publicUrl, logo_path: path });
-      setLogoUrl(publicUrl);
+      await replaceOrganizationLogo(org.id, { logo_url: uploaded.public_url, logo_path: uploaded.path });
+      setLogoUrl(uploaded.public_url);
     } catch (err) {
       alert(err instanceof Error ? err.message : "Failed to save logo.");
-      await supabase.storage.from(SITE_BUCKET).remove([path]);
+      await deleteUploadedMediaFile(uploaded.path);
     } finally {
       setReplacing(false);
     }
@@ -371,7 +366,6 @@ function SortableOrgRow({
 }
 
 function AddOrganizationForm({ onAdded }: { onAdded: (org: Organization) => void }) {
-  const supabase = createClient();
   const [name, setName] = useState("");
   const [designation, setDesignation] = useState("");
   const [externalUrl, setExternalUrl] = useState("");
@@ -402,23 +396,15 @@ function AddOrganizationForm({ onAdded }: { onAdded: (org: Organization) => void
     const previewUrl = URL.createObjectURL(file);
     const path = `logos/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(SITE_BUCKET)
-      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
-
-    if (uploadError) {
-      setError(uploadError.message);
-      setUploading(false);
+    try {
+      const uploaded = await uploadMediaFile(file, SITE_BUCKET, path);
+      setPendingLogo({ file, previewUrl, publicUrl: uploaded.public_url, path: uploaded.path });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
       URL.revokeObjectURL(previewUrl);
-      return;
+    } finally {
+      setUploading(false);
     }
-
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(SITE_BUCKET).getPublicUrl(path);
-
-    setPendingLogo({ file, previewUrl, publicUrl, path });
-    setUploading(false);
   }
 
   async function handleAdd() {
@@ -455,7 +441,7 @@ function AddOrganizationForm({ onAdded }: { onAdded: (org: Organization) => void
       setExternalUrl("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to add organization.");
-      await supabase.storage.from(SITE_BUCKET).remove([pendingLogo.path]);
+      await deleteUploadedMediaFile(pendingLogo.path);
     } finally {
       setSaving(false);
     }

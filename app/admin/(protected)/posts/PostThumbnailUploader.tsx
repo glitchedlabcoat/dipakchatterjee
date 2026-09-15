@@ -8,7 +8,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { uploadMediaFile, deleteUploadedMediaFile } from "@/lib/media-upload-client";
 import { POST_BUCKET } from "@/types/domain";
 import DropzoneUpload from "@/components/admin/DropzoneUpload";
 import { Loader2, Trash2 } from "lucide-react";
@@ -27,7 +27,6 @@ export default function PostThumbnailUploader({
   postId: string;
   currentUrl: string | null;
 }) {
-  const supabase = createClient();
   const [url, setUrl] = useState(currentUrl);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -53,28 +52,24 @@ export default function PostThumbnailUploader({
     setUploading(true);
 
     const path = `${postId}/thumbnail-${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
-    const { error: uploadError } = await supabase.storage
-      .from(POST_BUCKET)
-      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
-    if (uploadError) {
-      setError(uploadError.message);
+    let uploaded: { path: string; public_url: string };
+    try {
+      uploaded = await uploadMediaFile(file, POST_BUCKET, path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
       setUploading(false);
       URL.revokeObjectURL(preview);
       setLocalPreview(null);
       return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(POST_BUCKET).getPublicUrl(path);
-
     try {
-      await updatePostThumbnail(postId, { storage_path: path, public_url: publicUrl });
-      setUrl(publicUrl);
+      await updatePostThumbnail(postId, { storage_path: uploaded.path, public_url: uploaded.public_url });
+      setUrl(uploaded.public_url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
-      await supabase.storage.from(POST_BUCKET).remove([path]);
+      await deleteUploadedMediaFile(uploaded.path);
     } finally {
       setUploading(false);
       URL.revokeObjectURL(preview);

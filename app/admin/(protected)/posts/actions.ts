@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
 import { TAG_POST_ITEM, TAG_POSTS_LIST, revalidatePublicTag } from "@/lib/cache";
+import { deleteStoredMedia, deleteStoredMediaBatch } from "@/lib/storage-delete";
 import { POST_BUCKET, type MediaKind, type PostLink } from "@/types/domain";
 
 // Every mutation below changes either which posts are published/how
@@ -112,9 +113,7 @@ export async function deletePost(id: string) {
     .eq("post_id", id);
 
   if (media && media.length > 0) {
-    await supabase.storage
-      .from(POST_BUCKET)
-      .remove(media.map((m) => m.storage_path));
+    await deleteStoredMediaBatch(supabase, POST_BUCKET, media.map((m) => m.storage_path));
   }
 
   const { error } = await supabase.from("posts").delete().eq("id", id);
@@ -213,7 +212,7 @@ export async function deletePostMedia(postId: string, mediaId: string) {
     .single();
 
   if (row) {
-    await supabase.storage.from(POST_BUCKET).remove([row.storage_path]);
+    await deleteStoredMedia(supabase, POST_BUCKET, row.storage_path);
   }
 
   const { error } = await supabase.from("post_media").delete().eq("id", mediaId);
@@ -260,7 +259,7 @@ export async function updatePostThumbnail(
   if (error) throw new Error(error.message);
 
   if (current?.thumbnail_path) {
-    await supabase.storage.from(POST_BUCKET).remove([current.thumbnail_path]);
+    await deleteStoredMedia(supabase, POST_BUCKET, current.thumbnail_path);
   }
 
   revalidatePath(`/admin/posts/${postId}`);
@@ -284,7 +283,7 @@ export async function removePostThumbnail(postId: string) {
   if (error) throw new Error(error.message);
 
   if (current?.thumbnail_path) {
-    await supabase.storage.from(POST_BUCKET).remove([current.thumbnail_path]);
+    await deleteStoredMedia(supabase, POST_BUCKET, current.thumbnail_path);
   }
 
   revalidatePath(`/admin/posts/${postId}`);

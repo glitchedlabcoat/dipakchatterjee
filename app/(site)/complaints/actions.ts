@@ -1,17 +1,23 @@
 // app/(site)/complaints/actions.ts
+//
+// Attachments no longer arrive here as file bytes — ComplaintMediaPicker
+// already streamed each one straight to Cloudflare R2 via a presigned
+// PUT (see app/api/complaints/upload-url/route.ts) before the citizen
+// even hits Submit. This action just validates the form fields, confirms
+// every referenced R2 object genuinely exists (headComplaintObject —
+// never downloads it, just checks), and creates the complaint +
+// complaint_media rows pointing at those keys.
+
 "use server";
 
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { headers } from "next/headers";
 import { createServiceClient } from "@/utils/supabase/admin";
-import { COMPLAINT_BUCKET } from "@/types/domain";
 import { checkRateLimit } from "@/lib/rate-limit";
-import { sniffMediaKind } from "@/lib/file-validation";
+import { headComplaintObject, R2_COMPLAINT_KEY_PREFIX } from "@/lib/r2-complaints";
 
-const MAX_FILES = 5;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_MEDIA = 6; // MAX_IMAGES (5) + MAX_VIDEOS (1), see ComplaintMediaPicker
 
 // Public, unauthenticated endpoint — a low, honest cap against spam
 // (see lib/rate-limit.ts for the single-instance-only caveat).
@@ -25,11 +31,16 @@ const complaintSchema = z.object({
     .trim()
     .max(20)
     .refine((v) => v === "" || v.length >= 6, "Enter a valid phone number, or leave it blank"),
+  media: z
+    .array(
+      z.object({
+        key: z.string().trim().min(1).startsWith(R2_COMPLAINT_KEY_PREFIX),
+        kind: z.enum(["image", "video"]),
+      })
+    )
+    .max(MAX_MEDIA)
+    .default([]),
 });
-
-function sanitizeFilename(name: string) {
-  return name.replace(/[^a-zA-Z0-9.-]/g, "_").toLowerCase();
-}
 
 async function getClientIp(): Promise<string> {
   const hdrs = await headers();
@@ -38,11 +49,17 @@ async function getClientIp(): Promise<string> {
   return hdrs.get("x-real-ip") ?? "unknown";
 }
 
+export type SubmitComplaintInput = {
+  description: string;
+  contact_phone: string;
+  media: { key: string; kind: "image" | "video" }[];
+};
+
 export type SubmitComplaintResult =
   | { success: true; referenceId: string }
   | { success: false; error: string; fieldErrors?: Record<string, string> };
 
-export async function submitComplaint(formData: FormData): Promise<SubmitComplaintResult> {
+export async function submitComplaint(input: SubmitComplaintInput): Promise<SubmitComplaintResult> {
   const ip = await getClientIp();
   if (!checkRateLimit(`complaint:${ip}`, RATE_LIMIT_MAX_SUBMISSIONS, RATE_LIMIT_WINDOW_MS)) {
     return {
@@ -51,10 +68,7 @@ export async function submitComplaint(formData: FormData): Promise<SubmitComplai
     };
   }
 
-  const parsed = complaintSchema.safeParse({
-    description: formData.get("description"),
-    contact_phone: formData.get("contact_phone"),
-  });
+  const parsed = complaintSchema.safeParse(input);
 
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -90,41 +104,20 @@ export async function submitComplaint(formData: FormData): Promise<SubmitComplai
     return { success: false, error: "Something went wrong submitting your complaint. Please try again." };
   }
 
-  const files = formData
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0)
-    .slice(0, MAX_FILES);
+  // Confirm each referenced object actually landed in R2 (i.e. the
+  // presigned PUT really succeeded) before recording it — never trust
+  // the client's say-so alone. A HEAD request only reads metadata, so
+  // this still never pulls the file's bytes through this server.
+  for (const [i, m] of parsed.data.media.entries()) {
+    const head = await headComplaintObject(m.key);
+    if (!head) continue;
 
-  for (const [i, file] of files.entries()) {
-    const declaredIsVideo = file.type.startsWith("video/");
-    const declaredIsImage = file.type.startsWith("image/");
-    if (!declaredIsImage && !declaredIsVideo) continue;
-    if (file.size > (declaredIsVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES)) continue;
-
-    // Never trust the declared MIME type alone — it's just whatever
-    // Content-Type the uploading client claimed. Confirm what the file
-    // actually is from its leading bytes, and reject anything that
-    // doesn't genuinely match a real image/video format (this is also
-    // what stops an SVG — which can carry a <script> payload — from
-    // being smuggled in disguised as a JPEG).
-    const sniffed = await sniffMediaKind(file);
-    if (!sniffed) continue;
-    if ((sniffed === "video") !== declaredIsVideo) continue;
-
-    const isVideo = sniffed === "video";
-    const path = `${complaint.id}/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
-    const { error: uploadError } = await supabase.storage
-      .from(COMPLAINT_BUCKET)
-      .upload(path, file, { contentType: file.type });
-
-    if (!uploadError) {
-      await supabase.from("complaint_media").insert({
-        complaint_id: complaint.id,
-        kind: isVideo ? "video" : "image",
-        storage_path: path,
-        display_order: i,
-      });
-    }
+    await supabase.from("complaint_media").insert({
+      complaint_id: complaint.id,
+      kind: m.kind,
+      storage_path: m.key,
+      display_order: i,
+    });
   }
 
   revalidatePath("/admin/complaints");

@@ -17,6 +17,7 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
 import { revalidatePublicPages } from "@/lib/cache";
+import { deleteStoredMedia, deleteStoredMediaBatch } from "@/lib/storage-delete";
 import { PHASE_BUCKET, type PhasePhoto } from "@/types/domain";
 
 export type PhaseFormInput = {
@@ -116,7 +117,7 @@ export async function deletePhase(id: string) {
 
   const photos = ((phase?.photos as PhasePhoto[] | null) ?? []).filter((p) => p.path);
   if (photos.length > 0) {
-    await supabase.storage.from(PHASE_BUCKET).remove(photos.map((p) => p.path));
+    await deleteStoredMediaBatch(supabase, PHASE_BUCKET, photos.map((p) => p.path));
   }
 
   const { error } = await supabase.from("phases").delete().eq("id", id);
@@ -178,7 +179,7 @@ export async function deletePhasePhoto(phaseId: string, path: string) {
   const { error } = await supabase.from("phases").update({ photos: next }).eq("id", phaseId);
   if (error) throw new Error(error.message);
 
-  await supabase.storage.from(PHASE_BUCKET).remove([path]);
+  await deleteStoredMedia(supabase, PHASE_BUCKET, path);
 
   revalidatePath(`/admin/phases/${phaseId}`);
   revalidatePublicPages();

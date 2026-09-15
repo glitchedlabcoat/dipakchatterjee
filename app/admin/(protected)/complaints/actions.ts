@@ -3,7 +3,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin-guard";
-import { COMPLAINT_BUCKET } from "@/types/domain";
+import { deleteComplaintMediaBatch } from "@/lib/complaint-storage-delete";
 
 export async function deleteComplaint(id: string) {
   const { supabase } = await requireAdmin();
@@ -14,9 +14,7 @@ export async function deleteComplaint(id: string) {
     .eq("complaint_id", id);
 
   if (media && media.length > 0) {
-    await supabase.storage
-      .from(COMPLAINT_BUCKET)
-      .remove(media.map((m) => m.storage_path));
+    await deleteComplaintMediaBatch(supabase, media.map((m) => m.storage_path));
   }
 
   // complaint_media rows cascade automatically (FK ON DELETE CASCADE).

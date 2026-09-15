@@ -12,6 +12,27 @@ const securityHeaders = [
   },
 ];
 
+// Supabase Storage stays in remotePatterns below for legacy media not
+// yet moved by scripts/migrate-supabase-to-r2.ts; R2_PUBLIC_DOMAIN is
+// added alongside it (not in place of it) so next/image keeps working
+// for both during — and indefinitely after — that migration. Guarded
+// on the env var actually being set so a build/dev run without R2
+// configured yet doesn't fail Next's remotePatterns validation.
+const remotePatterns: NonNullable<NextConfig["images"]>["remotePatterns"] = [
+  {
+    protocol: "https",
+    hostname: "utkwwtdkhqvdshbjwikm.supabase.co",
+    pathname: "/storage/v1/object/public/**",
+  },
+];
+
+if (process.env.R2_PUBLIC_DOMAIN) {
+  remotePatterns.push({
+    protocol: "https",
+    hostname: process.env.R2_PUBLIC_DOMAIN,
+  });
+}
+
 const nextConfig = {
   // Bundles a minimal server + only the deps actually used into
   // .next/standalone — much smaller/lighter than `next start` on a
@@ -45,13 +66,7 @@ const nextConfig = {
     // required either way for next/image to be usable against Supabase
     // Storage URLs at all.
     minimumCacheTTL: 86400, // 24 hours
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "utkwwtdkhqvdshbjwikm.supabase.co",
-        pathname: "/storage/v1/object/public/**",
-      },
-    ],
+    remotePatterns,
   },
   experimental: {
     serverActions: {

@@ -2,11 +2,12 @@
 //
 // Shared media gallery for a single Feature or Post. Files can be dropped
 // or picked via DropzoneUpload; each one gets an instant local preview and
-// an independent upload status while it streams to Supabase Storage, then
-// a bound Server Action (addAction) persists the row. Reorder (drag) and
-// delete work the same way. When `editableMeta` is set (features only —
-// post_media has no title/caption columns), each item gets inline
-// title/caption fields for the Public Life gallery carousel.
+// an independent upload status while it streams to R2 (see
+// lib/media-upload-client.ts), then a bound Server Action (addAction)
+// persists the row. Reorder (drag) and delete work the same way. When
+// `editableMeta` is set (features only — post_media has no
+// title/caption columns), each item gets inline title/caption fields
+// for the Public Life gallery carousel.
 //
 // Callers bind their entity id into the actions with Function.bind (see
 // app/admin/(protected)/features/[id]/page.tsx for the pattern), so this
@@ -15,7 +16,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { uploadMediaFile, deleteUploadedMediaFile } from "@/lib/media-upload-client";
 import type { MediaKind } from "@/types/domain";
 import DropzoneUpload from "./DropzoneUpload";
 import {
@@ -56,7 +57,8 @@ type PendingUpload = {
 };
 
 type MediaManagerProps = {
-  bucket: string;
+  /** R2 folder namespace this entity's media lives under — pass one of types/domain.ts's *_BUCKET constants (e.g. POST_BUCKET), same values as before this moved off Supabase Storage's per-feature buckets. */
+  folder: string;
   entityId: string;
   media: MediaItem[];
   // Must resolve with the real database row id — MediaManager uses it
@@ -83,7 +85,7 @@ function sanitizeFilename(name: string) {
 }
 
 export default function MediaManager({
-  bucket,
+  folder,
   entityId,
   media,
   addAction,
@@ -92,7 +94,6 @@ export default function MediaManager({
   editableMeta = false,
   updateMetaAction,
 }: MediaManagerProps) {
-  const supabase = createClient();
   const [items, setItems] = useState(media);
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [isPending, startTransition] = useTransition();
@@ -139,30 +140,29 @@ export default function MediaManager({
     const kind: MediaKind = entry.file.type.startsWith("video/") ? "video" : "image";
     const path = `${entityId}/${crypto.randomUUID()}-${sanitizeFilename(entry.file.name)}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(bucket)
-      .upload(path, entry.file, { cacheControl: "2592000" /* 30 days */, upsert: false });
-
-    if (uploadError) {
+    let uploaded: { path: string; public_url: string };
+    try {
+      uploaded = await uploadMediaFile(entry.file, folder, path);
+    } catch (err) {
       setPending((prev) =>
-        prev.map((p) => (p.localId === entry.localId ? { ...p, status: "error", error: uploadError.message } : p))
+        prev.map((p) =>
+          p.localId === entry.localId
+            ? { ...p, status: "error", error: err instanceof Error ? err.message : "Upload failed." }
+            : p
+        )
       );
       return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(bucket).getPublicUrl(path);
-
     try {
-      const created = await addAction({ kind, storage_path: path, public_url: publicUrl });
+      const created = await addAction({ kind, storage_path: uploaded.path, public_url: uploaded.public_url });
       setItems((prev) => [
         ...prev,
         {
           id: created.id,
           kind,
-          storage_path: path,
-          public_url: publicUrl,
+          storage_path: uploaded.path,
+          public_url: uploaded.public_url,
           title: null,
           caption: null,
           display_order: prev.length,
@@ -178,7 +178,7 @@ export default function MediaManager({
             : p
         )
       );
-      await supabase.storage.from(bucket).remove([path]);
+      await deleteUploadedMediaFile(uploaded.path);
     }
   }
 

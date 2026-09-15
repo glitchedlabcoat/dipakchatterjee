@@ -13,6 +13,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/admin-guard";
 import { revalidatePublicPages } from "@/lib/cache";
+import { deleteStoredMedia, deleteStoredMediaBatch } from "@/lib/storage-delete";
 import { FEATURE_BUCKET, type MediaKind } from "@/types/domain";
 
 export type FeatureFormInput = {
@@ -78,9 +79,7 @@ export async function deleteFeature(id: string) {
     .eq("feature_id", id);
 
   if (media && media.length > 0) {
-    await supabase.storage
-      .from(FEATURE_BUCKET)
-      .remove(media.map((m) => m.storage_path));
+    await deleteStoredMediaBatch(supabase, FEATURE_BUCKET, media.map((m) => m.storage_path));
   }
 
   const { error } = await supabase.from("features").delete().eq("id", id);
@@ -178,7 +177,7 @@ export async function deleteFeatureMedia(featureId: string, mediaId: string) {
     .single();
 
   if (row) {
-    await supabase.storage.from(FEATURE_BUCKET).remove([row.storage_path]);
+    await deleteStoredMedia(supabase, FEATURE_BUCKET, row.storage_path);
   }
 
   const { error } = await supabase.from("feature_media").delete().eq("id", mediaId);

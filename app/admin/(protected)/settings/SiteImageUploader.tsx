@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { uploadMediaFile, deleteUploadedMediaFile } from "@/lib/media-upload-client";
 import { SITE_BUCKET } from "@/types/domain";
 import DropzoneUpload from "@/components/admin/DropzoneUpload";
 import { Loader2, Trash2 } from "lucide-react";
@@ -27,7 +27,6 @@ export default function SiteImageUploader({
   currentUrl: string | null;
   previewClassName: string;
 }) {
-  const supabase = createClient();
   const [url, setUrl] = useState(currentUrl);
   const [localPreview, setLocalPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -53,28 +52,24 @@ export default function SiteImageUploader({
     setUploading(true);
 
     const path = `${kind}/${crypto.randomUUID()}-${sanitizeFilename(file.name)}`;
-    const { error: uploadError } = await supabase.storage
-      .from(SITE_BUCKET)
-      .upload(path, file, { cacheControl: "2592000" /* 30 days */, upsert: false });
 
-    if (uploadError) {
-      setError(uploadError.message);
+    let uploaded: { path: string; public_url: string };
+    try {
+      uploaded = await uploadMediaFile(file, SITE_BUCKET, path);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Upload failed.");
       setUploading(false);
       URL.revokeObjectURL(preview);
       setLocalPreview(null);
       return;
     }
 
-    const {
-      data: { publicUrl },
-    } = supabase.storage.from(SITE_BUCKET).getPublicUrl(path);
-
     try {
-      await updateSiteImage(kind, { storage_path: path, public_url: publicUrl });
-      setUrl(publicUrl);
+      await updateSiteImage(kind, { storage_path: uploaded.path, public_url: uploaded.public_url });
+      setUrl(uploaded.public_url);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save.");
-      await supabase.storage.from(SITE_BUCKET).remove([path]);
+      await deleteUploadedMediaFile(uploaded.path);
     } finally {
       setUploading(false);
       URL.revokeObjectURL(preview);

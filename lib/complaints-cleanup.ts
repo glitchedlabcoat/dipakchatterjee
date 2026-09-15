@@ -8,7 +8,7 @@
 // (app/api/cron/purge-complaints/route.ts).
 
 import { createServiceClient } from "@/utils/supabase/admin";
-import { COMPLAINT_BUCKET } from "@/types/domain";
+import { deleteComplaintMediaBatch } from "@/lib/complaint-storage-delete";
 
 export async function purgeExpiredComplaints(): Promise<{ deleted: number }> {
   const supabase = createServiceClient();
@@ -21,9 +21,7 @@ export async function purgeExpiredComplaints(): Promise<{ deleted: number }> {
   if (!expired || expired.length === 0) return { deleted: 0 };
 
   const paths = expired.flatMap((c) => c.complaint_media.map((m) => m.storage_path));
-  if (paths.length > 0) {
-    await supabase.storage.from(COMPLAINT_BUCKET).remove(paths);
-  }
+  await deleteComplaintMediaBatch(supabase, paths);
 
   const ids = expired.map((c) => c.id);
   await supabase.from("complaints").delete().in("id", ids);
