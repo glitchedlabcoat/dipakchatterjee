@@ -70,9 +70,14 @@ const nextConfig = {
   },
   experimental: {
     serverActions: {
-      // Default is 1MB; the complaint form submits photos/videos as
-      // FormData through a Server Action.
-      bodySizeLimit: "30mb",
+      // Was 30mb for the old complaint-form FormData path; that path now
+      // uploads media directly to R2 via presigned URLs (see
+      // app/api/complaints/upload-url/route.ts) and every remaining
+      // Server Action in the app only ever sends small JSON payloads.
+      // Kept deliberately small (not the 1MB default) on this
+      // memory-constrained host — see app/api/admin/upload/route.ts for
+      // why an oversized request body is a real OOM risk here.
+      bodySizeLimit: "1mb",
     },
   },
 } satisfies NextConfig;

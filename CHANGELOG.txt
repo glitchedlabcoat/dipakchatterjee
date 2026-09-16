@@ -8,6 +8,93 @@ rewritten.
 
 --------------------
 
+[v1.14.0] - 2026-09-16
+
+* Fixed: Render production was crashing repeatedly with exit status 134
+  (V8 "JavaScript heap out of memory", confirmed from the actual crash
+  log tail - not a native-module or assertion failure). Root cause: the
+  container's auto-sized V8 heap ceiling (~256MB) left almost no
+  headroom over the app's own steady-state footprint, and
+  app/api/admin/upload/route.ts fully buffered uploads in memory with a
+  100MB video cap - a single admin video upload could transiently
+  double-buffer ~200MB on top of that baseline. MAX_VIDEO_BYTES reduced
+  100MB to 25MB; experimental.serverActions.bodySizeLimit reduced 30mb
+  to 1mb (a leftover from the pre-R2-migration complaint upload path,
+  now dead code - see v1.13.0). Raising the actual heap ceiling requires
+  a Render dashboard environment variable
+  (NODE_OPTIONS=--max-old-space-size=400, documented in .env.example)
+  that only the account owner can add.
+* Added: instrumentation.ts/instrumentation-node.ts - periodic
+  process.memoryUsage() logging (15 min interval) and onRequestError
+  logging with error digests, so a future crash leaves a trace instead
+  of a bare native stack.
+* Added: Admin dashboard instant navigation feedback via a shared
+  useTransition-backed pending state (AdminNavPendingContext) - every
+  sidebar nav link and Settings sub-tab link now shows a top progress
+  bar and disables itself the instant it's clicked, so rage-clicking
+  can't stack up multiple concurrent server requests.
+* Added: app/admin/(protected)/loading.tsx - a shared skeleton fallback
+  so a slow page's own data fetch streams in behind a visible loading
+  state instead of a blank pane (does not cover the shared layout's own
+  auth fetch - see Changed, below).
+* Changed: /admin/settings now fetches only the active tab's data
+  instead of unconditionally querying all 9 tables behind every one of
+  the 6 tabs on every page load.
+* Changed: The admin layout, Overview page, and Settings page now share
+  one react cache()-wrapped auth/profile lookup (lib/admin-auth.ts)
+  instead of each independently calling Supabase Auth - cuts up to 3
+  sequential round trips per navigation down to 1.
+* Changed: posts/features/phases admin list queries capped at
+  .limit(200) - unpaginated by design, but no longer truly unbounded on
+  a memory-constrained host.
+* Changed: The 6 heaviest @dnd-kit-based Settings managers
+  (Organizations, CTA Buttons, Footer Blocks, Social Links, Header
+  Navigation, Users) now load via next/dynamic, so /admin/settings's
+  client bundle only pays for whichever tab is actually open.
+* Changed: Session inactivity timer (SessionTimer.tsx) no longer resets
+  on scroll/touchstart - only a deliberate pointerdown or keydown keeps
+  the 15-minute session alive, so a page left merely scrolled still
+  signs out on schedule.
+* Security: Dedicated security review of this entry's diff (dashboard
+  latency + OOM fixes): no high- or medium-confidence findings. The
+  react cache() auth/profile dedup pattern is the standard,
+  request-scoped App Router idiom (no cross-user leakage risk); all
+  body-size/upload-cap changes narrow rather than widen accepted input;
+  the per-tab Settings fetch doesn't change what's ever serialized to
+  the client, since React Server Components already only ship rendered
+  output, not unrendered sibling props.
+* Security: Repository-wide dead-code/dependency audit: eslint . clean
+  (0 findings), no unused top-level or nested components/ files, no
+  unused package.json dependencies, no orphaned public/ assets, no
+  commented-out code blocks found. No removals were necessary.
+
+Files edited (paths only):
+  - .env.example
+  - app/admin/(protected)/features/page.tsx
+  - app/admin/(protected)/layout.tsx
+  - app/admin/(protected)/loading.tsx (new)
+  - app/admin/(protected)/page.tsx
+  - app/admin/(protected)/posts/page.tsx
+  - app/admin/(protected)/settings/page.tsx
+  - app/api/admin/upload/route.ts
+  - components/admin/AdminNavPendingContext.tsx (new)
+  - components/admin/AdminSidebar.tsx
+  - components/admin/AdminTopProgressBar.tsx (new)
+  - components/admin/SessionTimer.tsx
+  - instrumentation.ts (new)
+  - instrumentation-node.ts (new)
+  - lib/admin-auth.ts (new)
+  - next.config.ts
+
+Today's Checkpoint (2026-09-16):
+  Open ledger for anything else shipped later today - appended here
+  rather than opening a new version entry, so the day's work stays in
+  one place. Promote to a normal dated entry (or fold into the next
+  version bump) once the day is done.
+  - (nothing further yet)
+
+--------------------
+
 [v1.13.1] - 2026-09-15
 
 * Fixed: CSP's img-src/media-src never included the R2 host after

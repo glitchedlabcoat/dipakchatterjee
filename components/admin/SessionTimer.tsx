@@ -19,7 +19,13 @@ import { logoutAdmin } from "@/app/admin/session-actions";
 const SESSION_SECONDS = 15 * 60;
 const HEARTBEAT_MIN_INTERVAL_MS = 30 * 1000;
 const LOW_TIME_THRESHOLD_SECONDS = 60;
-const ACTIVITY_EVENTS = ["pointerdown", "keydown", "scroll", "touchstart"] as const;
+// Deliberate activity only — a click/tap (pointerdown covers mouse,
+// touch, and pen alike, so a separate touchstart is redundant) or a key
+// press. Passive scrolling/wheel/touchmove must NOT reset this: an admin
+// who opened the dashboard, scrolled once to read something, and then
+// walked away should still be signed out on schedule, not kept alive
+// indefinitely by a page that's merely sitting there scrolled.
+const ACTIVITY_EVENTS = ["pointerdown", "keydown"] as const;
 
 function formatTime(totalSeconds: number) {
   const minutes = Math.floor(totalSeconds / 60);

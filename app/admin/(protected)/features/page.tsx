@@ -21,9 +21,12 @@ export const metadata: Metadata = {
 export default async function FeaturesPage() {
   const supabase = await createClient();
 
+  // Capped, not truly unbounded — same reasoning as posts/page.tsx's
+  // .limit(200): this container is memory-constrained, and these lists
+  // have no pagination UI to fall back on if they ever grew large.
   const [{ data: features }, { data: phases }] = await Promise.all([
-    supabase.from("features").select("*").order("display_order", { ascending: true }),
-    supabase.from("phases").select("*").order("sort_order", { ascending: true }),
+    supabase.from("features").select("*").order("display_order", { ascending: true }).limit(200),
+    supabase.from("phases").select("*").order("sort_order", { ascending: true }).limit(200),
   ]);
 
   const featureList = (features as Feature[]) ?? [];

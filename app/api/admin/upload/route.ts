@@ -20,7 +20,16 @@ import { requireAdmin } from "@/lib/admin-guard";
 import { uploadToR2, deleteFromR2 } from "@/lib/r2";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+// request.formData() fully buffers the upload in memory before this
+// handler ever sees it, then Buffer.from(await file.arrayBuffer())
+// copies it again — so a single request transiently holds ~2x this
+// value in RSS. On a 512MB host that made the old 100MB ceiling capable
+// of single-handedly triggering the V8 "JavaScript heap out of memory"
+// crashes seen in production; 25MB keeps a single upload's worst-case
+// footprint well under the container's real headroom. Raise this only
+// alongside a real memory/plan increase, or switch this route to a
+// true streaming multipart upload first.
+const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 
 // One folder per media feature, mirroring the Supabase Storage buckets
 // they replace (SITE_BUCKET, POST_BUCKET, FEATURE_BUCKET, PHASE_BUCKET

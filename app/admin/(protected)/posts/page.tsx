@@ -13,12 +13,20 @@ export const metadata: Metadata = {
 export default async function PostsPage() {
   const supabase = await createClient();
 
+  // Unpaginated by design (PostList has no pagination UI), but capped
+  // rather than truly unbounded — this dashboard runs on a
+  // memory-constrained Render container (see the OOM fix in
+  // app/api/admin/upload/route.ts's MAX_VIDEO_BYTES comment), and an
+  // unbounded select('*') would grow this page's cost linearly with the
+  // post count forever. 200 is far beyond current real usage; if the
+  // list ever approaches it, this needs real pagination, not a higher cap.
   const { data: posts } = await supabase
     .from("posts")
     .select("*")
     .order("is_pinned", { ascending: false })
     .order("published_at", { ascending: false })
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(200);
 
   return (
     <div>

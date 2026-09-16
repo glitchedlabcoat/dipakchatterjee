@@ -2,6 +2,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { createClient } from "@/utils/supabase/server";
+import { getAuthedUser, getViewerProfile } from "@/lib/admin-auth";
 import { ArrowRight, Layers, MessageSquareWarning, Rss } from "lucide-react";
 import type { Profile } from "@/types/domain";
 import MyContactInfoCard from "@/components/admin/MyContactInfoCard";
@@ -21,10 +22,14 @@ export default async function AdminOverviewPage() {
   let featureCount = 0;
   let postCount = 0;
   let complaintCount = 0;
-  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] = null;
+
+  // getAuthedUser() is react cache()-wrapped (lib/admin-auth.ts) — the
+  // (protected) layout already called it this same request, so this
+  // reuses that result instead of a second Supabase Auth round trip.
+  const user = await getAuthedUser();
 
   try {
-    const [featureResult, postResult, complaintResult, authResult] = await Promise.all([
+    const [featureResult, postResult, complaintResult] = await Promise.all([
       supabase.from("features").select("*", { count: "exact", head: true }),
       supabase.from("posts").select("*", { count: "exact", head: true }),
       supabase
@@ -32,25 +37,17 @@ export default async function AdminOverviewPage() {
         .select("*", { count: "exact", head: true })
         .eq("is_expired", false)
         .gt("expires_at", new Date().toISOString()),
-      supabase.auth.getUser(),
     ]);
     featureCount = featureResult.count ?? 0;
     postCount = postResult.count ?? 0;
     complaintCount = complaintResult.count ?? 0;
-    user = authResult.data.user;
   } catch (err) {
     console.error("[AdminOverviewPage] initial data load failed:", err);
   }
 
-  let viewerProfile: Profile | null = null;
-  if (user) {
-    try {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-      viewerProfile = data;
-    } catch (err) {
-      console.error("[AdminOverviewPage] profile fetch failed:", err);
-    }
-  }
+  // Likewise reuses the layout's profile fetch (same cache(), same
+  // userId argument) instead of a third full-row query this request.
+  const viewerProfile: Profile | null = user ? await getViewerProfile(user.id) : null;
 
   return (
     <div>

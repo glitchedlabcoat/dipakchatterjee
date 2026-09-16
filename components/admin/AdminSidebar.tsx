@@ -26,7 +26,16 @@ import {
 } from "lucide-react";
 import SignOutButton from "@/components/admin/SignOutButton";
 import { useMobileSidebar } from "@/components/admin/MobileSidebarContext";
+import { useAdminNavPending } from "@/components/admin/AdminNavPendingContext";
 import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, settingsTabHref } from "@/lib/settings-nav";
+
+// A modified click (open in new tab/window, or anything but a plain
+// left click) must fall through to the browser's native <a> behavior —
+// only a plain click gets intercepted for the instant-pending/disabled
+// treatment below.
+function isPlainLeftClick(e: React.MouseEvent) {
+  return e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey;
+}
 
 // Split around the Settings accordion (rendered separately below, in
 // this same spot) rather than one flat list, since Settings alone needs
@@ -52,6 +61,7 @@ export default function AdminSidebar({
   userLabel: string;
 }) {
   const { isOpen, close } = useMobileSidebar();
+  const { isPending, navigate } = useAdminNavPending();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
@@ -71,13 +81,31 @@ export default function AdminSidebar({
     if (isSettingsRoute) setSettingsOpen(true);
   }
 
+  // Intercepts a plain click to route it through useTransition (see
+  // AdminNavPendingContext) instead of a bare <Link> navigation, so
+  // isPending covers the whole nav and every other link can disable
+  // itself the instant one is clicked — pointer-events-none is the
+  // primary guard against a rage-click pile-up, the isPending check
+  // below is a second line of defense for a non-pointer activation
+  // (e.g. Enter on a focused link) that pointer-events can't catch.
+  function handleNavClick(e: React.MouseEvent<HTMLAnchorElement>, href: string) {
+    close();
+    if (!isPlainLeftClick(e)) return;
+    e.preventDefault();
+    if (isPending) return;
+    navigate(href);
+  }
+
   function renderLink({ href, label, icon: Icon }: { href: string; label: string; icon: typeof LayoutDashboard }) {
     return (
       <Link
         key={href}
         href={href}
-        onClick={close}
-        className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-paper-100/80 hover:bg-white/10 hover:text-white transition-colors"
+        onClick={(e) => handleNavClick(e, href)}
+        aria-disabled={isPending}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-paper-100/80 hover:bg-white/10 hover:text-white transition-colors ${
+          isPending ? "pointer-events-none opacity-50" : ""
+        }`}
       >
         <Icon className="w-4 h-4" />
         {label}
@@ -144,13 +172,14 @@ export default function AdminSidebar({
                     <Link
                       key={tab.id}
                       href={settingsTabHref(tab.id)}
-                      onClick={close}
+                      onClick={(e) => handleNavClick(e, settingsTabHref(tab.id))}
                       aria-current={active ? "page" : undefined}
+                      aria-disabled={isPending}
                       className={`block px-3 py-2 rounded-md text-sm transition-colors ${
                         active
                           ? "bg-saffron/15 text-saffron font-medium"
                           : "text-paper-100/70 hover:bg-white/10 hover:text-white"
-                      }`}
+                      } ${isPending ? "pointer-events-none opacity-50" : ""}`}
                     >
                       {tab.navLabel}
                     </Link>

@@ -1,8 +1,10 @@
 // app/admin/(protected)/settings/page.tsx
 import type { Metadata } from "next";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { Rows3 } from "lucide-react";
 import { createClient } from "@/utils/supabase/server";
+import { getAuthedUser, getViewerProfile } from "@/lib/admin-auth";
 import type {
   CtaButton,
   FooterBlockWithLinks,
@@ -14,20 +16,26 @@ import type {
 } from "@/types/domain";
 import SiteImageUploader from "./SiteImageUploader";
 import LandingForm from "./LandingForm";
-import OrganizationsManager from "./OrganizationsManager";
 import ThemeColorForm from "./ThemeColorForm";
-import CtaButtonsManager from "./CtaButtonsManager";
 import BrandingTextForm from "./BrandingTextForm";
 import SeoSnippetForm from "./SeoSnippetForm";
-import FooterBlocksManager from "./FooterBlocksManager";
-import SocialLinksManager from "./SocialLinksManager";
-import HeaderNavigationManager from "./HeaderNavigationManager";
 import NotableWorksLimitControl from "./NotableWorksLimitControl";
-import UsersManager from "./UsersManager";
 import MetaOEmbedSettingsForm from "./MetaOEmbedSettingsForm";
 import SettingsTabs from "./SettingsTabs";
 import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, isSettingsTabId } from "@/lib/settings-nav";
 import type { IntegrationSettings, Profile } from "@/types/domain";
+
+// Each of these mounts its own @dnd-kit sortable board — code-split so
+// the /admin/settings route's client bundle only pays for whichever
+// tab is actually active, not all six every time (dnd-kit + every
+// manager component otherwise all ship in one chunk regardless of
+// which single panel SettingsTabs ends up rendering).
+const OrganizationsManager = dynamic(() => import("./OrganizationsManager"));
+const CtaButtonsManager = dynamic(() => import("./CtaButtonsManager"));
+const FooterBlocksManager = dynamic(() => import("./FooterBlocksManager"));
+const SocialLinksManager = dynamic(() => import("./SocialLinksManager"));
+const HeaderNavigationManager = dynamic(() => import("./HeaderNavigationManager"));
+const UsersManager = dynamic(() => import("./UsersManager"));
 
 type SettingsSearchParams = { tab?: string };
 
@@ -68,24 +76,20 @@ export default async function SettingsPage({
 
   const supabase = await createClient();
 
-  // Auth check and profile lookup are wrapped: a transient failure here
-  // is not "signed out" and shouldn't be presented as such, but it also
+  // getAuthedUser/getViewerProfile are react cache()-wrapped (see
+  // lib/admin-auth.ts) — the (protected) layout already made both of
+  // these calls this same request, so this reuses them instead of a
+  // second/third round trip. Still wrapped: a transient failure here is
+  // not "signed out" and shouldn't be presented as such, but it also
   // must never crash this page via an unhandled rejection — fall
   // through to the same explicit error message either way.
-  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>["data"]["user"] = null;
-  let viewerProfile: { is_admin: boolean } | null = null;
+  let user: Awaited<ReturnType<typeof getAuthedUser>> = null;
+  let viewerProfile: Profile | null = null;
   let authFailed = false;
 
   try {
-    const {
-      data: { user: fetchedUser },
-    } = await supabase.auth.getUser();
-    user = fetchedUser;
-
-    if (user) {
-      const { data } = await supabase.from("profiles").select("is_admin").eq("id", user.id).single();
-      viewerProfile = data;
-    }
+    user = await getAuthedUser();
+    if (user) viewerProfile = await getViewerProfile(user.id);
   } catch (err) {
     console.error("[SettingsPage] auth/profile lookup failed:", err);
     authFailed = true;
@@ -110,6 +114,16 @@ export default async function SettingsPage({
     return <SettingsMessage heading="Signed out" body="Please sign in to manage site settings." />;
   }
 
+  // site_settings is fetched unconditionally (small, single-row, and
+  // needed by nearly every tab for theme colors / hero-image URLs /
+  // etc.) — everything else below is fetched ONLY for the tab actually
+  // being viewed. This used to be one unconditional 9-query Promise.all
+  // run on every load regardless of `?tab=`; SettingsTabs only ever
+  // rendered one of those nine query results, so the other data was
+  // real, wasted Supabase round trips on every single settings page view.
+  const NONE = Promise.resolve({ data: null });
+  const EMPTY = Promise.resolve({ data: [] });
+
   let settings, organizations, ctaButtons, footerBlocks, socialLinks, navLinks, headerActions, profiles, integrationSettings;
 
   try {
@@ -125,18 +139,30 @@ export default async function SettingsPage({
       { data: integrationSettings },
     ] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", "default").single(),
-      supabase.from("organizations").select("*").order("display_order", { ascending: true }),
-      supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
-      supabase
-        .from("footer_blocks")
-        .select("*, footer_links(*)")
-        .order("display_order", { ascending: true })
-        .order("display_order", { foreignTable: "footer_links", ascending: true }),
-      supabase.from("social_links").select("*").order("display_order", { ascending: true }),
-      supabase.from("nav_links").select("*").order("display_order", { ascending: true }),
-      supabase.from("header_actions").select("*").order("display_order", { ascending: true }),
-      supabase.from("profiles").select("*").order("created_at", { ascending: true }),
-      supabase.from("integration_settings").select("*").eq("id", "default").single(),
+      activeTab === "media"
+        ? supabase.from("organizations").select("*").order("display_order", { ascending: true })
+        : EMPTY,
+      activeTab === "hero"
+        ? supabase.from("cta_buttons").select("*").order("display_order", { ascending: true })
+        : EMPTY,
+      activeTab === "general"
+        ? supabase
+            .from("footer_blocks")
+            .select("*, footer_links(*)")
+            .order("display_order", { ascending: true })
+            .order("display_order", { foreignTable: "footer_links", ascending: true })
+        : EMPTY,
+      activeTab === "general"
+        ? supabase.from("social_links").select("*").order("display_order", { ascending: true })
+        : EMPTY,
+      activeTab === "header"
+        ? supabase.from("nav_links").select("*").order("display_order", { ascending: true })
+        : EMPTY,
+      activeTab === "header"
+        ? supabase.from("header_actions").select("*").order("display_order", { ascending: true })
+        : EMPTY,
+      activeTab === "users" ? supabase.from("profiles").select("*").order("created_at", { ascending: true }) : EMPTY,
+      activeTab === "media" ? supabase.from("integration_settings").select("*").eq("id", "default").single() : NONE,
     ]);
   } catch (err) {
     console.error("[SettingsPage] settings data load failed:", err);
