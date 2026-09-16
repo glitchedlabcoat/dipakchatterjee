@@ -1,0 +1,285 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: FAVICON, DYNAMIC BRANDING, OPTIONAL
+POST TIME, ADMIN LAYOUT RECOVERY, AND A TURBOPACK PANIC RECOVERY
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-14 (one commit, f87ce16, landed just after
+  midnight IST; the rest of this day's work — regression fixes, dev-server
+  operation, and a Turbopack crash recovery — was local-only, no commit).
+- Repository: dipakchatterjee (Next.js 16.3.4/Turbopack, Supabase).
+- Consolidated from "seo-branding-post-time-and-admin-layout-recovery.txt"
+  (now superseded/deleted) — Phases 2 through 7 of that dossier; Phase 1
+  (b23293b) and Phase 6.5 (R2 migration, carried context) are documented in
+  the 2026-09-13 and 2026-09-15 dossiers respectively, to keep each file
+  scoped to its own calendar day.
+- Core Objective: a code-generated favicon, a sitewide dynamic <title>
+  template driven by an admin-editable site title, smart word-boundary title
+  truncation, an admin toggle to make a post's published TIME optional in
+  public display, then three reported regressions (admin sidebar losing its
+  bottom cluster on long pages, the new time-toggle not affecting public
+  rendering, the header showing a fallback monogram instead of the real
+  photo) diagnosed and fixed, then a live Turbopack FATAL panic recovered.
+- Key constraints: AGENTS.md mandates reading node_modules/next/dist/docs/
+  before writing any Next.js-API-touching code, since this pinned version
+  diverges from training-data assumptions — followed explicitly for
+  metadata routes, ImageResponse/next/og, generateMetadata, and
+  unstable_cache. Explicit data-safety constraint on the post-time feature:
+  "Do NOT drop or alter database data. Existing posts must retain their
+  saved time" — satisfied via `not null default true`. Several turns
+  carried "keep changes staged, do not commit" until a later, separate,
+  explicit "push the code now" instruction.
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+[f87ce16 — 2026-09-14 00:28:33] Dynamic favicon/titles, optional post time,
+and layout fixes
+
+  (2.1) Favicon generation
+  New app/icon.tsx: `generateImageMetadata()` returning two variants (32×32,
+  48×48), a default async `Icon({id})` rendering "DC" (fontWeight 700,
+  color #C1832B — the project's saffron brand color) via `ImageResponse`
+  imported from `next/og` (confirmed, per the current docs, that `next/
+  server` is the pre-v14 training-data-era path and no longer correct — a
+  v14.0.0 breaking change). A standalone script rendered both variants to
+  PNG for visual verification (confirmed crisp, bold, transparent
+  background via the Read tool's image-render capability), then a second
+  script hand-packed both PNGs into a single multi-image public/favicon.ico
+  container (ICO header + per-image directory entries + raw PNG payloads
+  back-to-back — the modern "PNG-in-ICO" format, natively supported since
+  Windows Vista, no BMP/DIB re-encoding needed). Both temporary scripts
+  deleted after use.
+
+  (2.2) Dynamic <title> template + admin site_title setting
+  Root Cause / Scope Decision: the task's literal example installed
+  `title: {default, template}` at the TRUE root `app/layout.tsx` — but that
+  layout wraps BOTH the public site AND the entire /admin/* dashboard, and
+  every admin page already sets its own full, hardcoded title string. Per
+  Next's title-resolution rule, a child segment's own string `title` is
+  WRAPPED by the nearest ancestor's `title.template` — installing it at the
+  true root would have silently double-suffixed every admin page's title.
+  Decision (explicitly flagged as a deliberate deviation from the literal
+  prompt): installed the template at `app/(site)/layout.tsx` instead — that
+  file's own header comment already states it deliberately excludes
+  /admin/*, making it the correct, minimal-blast-radius insertion point.
+  New migration 20260926000000_site_title.sql (`site_settings.site_title
+  text not null default 'Janatar Dipak'`). Wrapped the existing
+  `getSiteChrome` in React's `cache()` so `generateMetadata` and the layout
+  component (both invoked once per request) share one call instead of two —
+  avoiding duplicate cache-hit/miss telemetry and a duplicate cache-key
+  lookup, per Next's documented "Memoizing data requests" pattern.
+
+  (2.3) Dedicated "Browser Tab Settings" card, smart title truncation,
+        optional post time
+  - Navbar avatar investigated first (not yet a real bug at this point):
+    confirmed via a raw curl of the rendered HTML that "DC" was rendering
+    because `avatar_url` was genuinely NULL — correct fallback behavior, not
+    a bug. Improved the fallback's styling anyway (bold saffron on a tinted
+    circle, matching the new favicon) and added an `onError` handler on the
+    `<img>` so a future broken/expired avatar_url would degrade to the
+    monogram instead of a blank/broken image.
+  - New `lib/truncate-title.ts`: `truncateTitle(title, maxLength=50)` —
+    slices to maxLength, backs off to the last space ONLY if doing so still
+    keeps at least 40% of the target length (otherwise a single abnormally
+    long word would hard-cut rather than produce a near-empty truncation).
+  - New dedicated `BrowserTabSettingsForm.tsx` card (site_title field
+    extracted OUT of the earlier inline BrandingTextForm placement, back to
+    that form's original pre-2.2 content).
+  - Optional post time: new migration 20260927000000_post_optional_time.sql
+    (`posts.show_published_time boolean not null default true` — default
+    `true` specifically so every EXISTING post keeps displaying its time
+    exactly as before). New `lib/post-date.ts`:
+    `formatPostDate(value, showTime)`. PostForm.tsx gained an "Include time"
+    checkbox toggling between a `datetime-local` and a `date` input; on
+    submit the two are combined. `createPost`/`updatePost` include
+    `show_published_time` unconditionally (deliberately NOT a truthy-
+    conditional spread, unlike `published_at`, to avoid the classic
+    "false is falsy, gets silently dropped" bug).
+  - Lint fix: React Compiler flagged `useForm()`'s destructured `watch()` as
+    "cannot be memoized safely" in both new forms — replaced with
+    `useWatch({control, name})` (imported directly from react-hook-form),
+    confirmed to not trigger the same warning.
+  - Every new server action confirmed gated by the existing `requireAdmin()`
+    guard; the two new DB columns confirmed to automatically inherit their
+    tables' existing RLS policies (RLS applies row-level regardless of which
+    columns are touched).
+
+  (3.1) Sticky admin sidebar — regression fix
+  Event/Issue: on long admin pages, the sidebar's bottom cluster (View Live
+  Site / user label / Sign out) scrolled away with the page content.
+  Root Cause: the layout's outer wrapper was an unbounded, growable
+  `<div className="min-h-screen flex">`; `AdminSidebar`'s `<aside>` used
+  `md:static` at the desktop breakpoint, which OVERRIDES `fixed`, dropping
+  the sidebar into normal document flow (mobile stayed correctly fixed —
+  the bug was desktop-only).
+  Resolution: outer wrapper changed to `h-screen flex overflow-hidden` (so
+  the page itself never scrolls); `<main>`'s inner content wrapper became
+  the actual scrolling pane; the sidebar filled its now-fixed-height parent
+  via `h-full` instead of needing `fixed`/`sticky`; the sidebar's own middle
+  nav-links list got `flex-1 min-h-0 overflow-y-auto` so ONLY that list
+  scrolls internally if it overflows, while the top brand block and bottom
+  user/sign-out cluster got `shrink-0` so they can never be compressed away.
+
+  (3.2) "Include Time" not reflecting on public pages — regression fix
+  Event/Issue: checkbox checked, real timestamp present in the admin, but
+  public pages still showed date only.
+  Root Cause (found via a direct live-database REST query, not code
+  inspection alone): `curl .../posts?select=...,show_published_time` →
+  `{"code":"42703",...,"message":"column posts.show_published_time does not
+  exist"}`. The same for `site_title`. Confirmed via `supabase migration
+  list`: both of Phase 2's migrations showed `"remote":""` — written to
+  disk but NEVER APPLIED to the live project. The code itself (formatPostDate,
+  the checkbox wiring, the conditional-spread logic) was independently
+  confirmed correct — this was purely an unapplied-migration bug.
+
+  (3.3) Navbar avatar showing "DC" instead of the real photo — a REAL
+        regression this time
+  Root Cause: live-queried and confirmed a real, valid, 200-resolving
+  `avatar_url` now existed — the image asset itself was fine. Traced instead
+  to `getSiteChrome()`'s query, which selected `site_settings` using an
+  EXPLICIT NAMED COLUMN LIST that included `site_title` — a column
+  confirmed (3.2) not to exist live. PostgREST rejects a SELECT's ENTIRE
+  result when even ONE named column doesn't exist, silently nulling out
+  `avatar_url`, theme colors, header/footer text — sitewide.
+  Resolution: changed the query to `.select("*")` — matching an EXISTING,
+  already-documented resilience convention in the same file's `nav_links`
+  query ("a plain select('*') degrades to omitting the unknown column
+  rather than erroring the whole result").
+  Verification pitfall: after the code fix, the dev server still showed
+  "DC" even after a process kill+restart. Root cause of THIS secondary
+  symptom: Next's on-disk Data Cache (`.next/cache`) had persisted the
+  stale/errored cached result from before the fix and survived a plain
+  process restart. Fix: `rm -rf .next` + restart.
+
+  (3.4) Live migration application (explicit approval)
+  Since 3.2/3.3 required an actual production schema change, asked the user
+  directly via AskUserQuestion before running `supabase db push` — approved.
+  Applied both pending migrations live; verified via direct REST re-query
+  (site_title returned the column default; all sampled posts returned
+  `show_published_time: true`, the column default — confirming EXISTING
+  posts' display behavior was genuinely unchanged). Extended the
+  show_published_time wiring to two more public surfaces that the task
+  explicitly named but which had each had their own bespoke date-only
+  formatter until now: notable-works/page.tsx's PostCard and
+  components/posts/PostsFeed.tsx's PostCard.
+
+  [Dev-server operation turns, no commit]
+  Started/stopped/restarted the local dev server on direct request across
+  several turns. One restart hit "Port 3000 is in use... Another next dev
+  server is already running" — diagnosed via PowerShell `Get-Process` as a
+  stray leftover node.exe from an earlier manual session in the same
+  conversation that had not been cleanly terminated; killed via
+  `Stop-Process -Force`, restarted cleanly.
+
+  [Turbopack FATAL panic — diagnosis and recovery, no commit]
+  Event/Issue (user-pasted): "An unexpected Turbopack error occurred" on
+  desktop; mobile showed a fully blank page.
+  Investigation: read the full dev-server log tail — repeated FATAL blocks,
+  one per attempted route render, identical for GET /, /admin/login, and
+  /admin (each HTTP 500), plus a matching browser-side uncaught error. Read
+  the referenced Turbopack panic log directly: the failure occurred
+  specifically inside the CSS pipeline (`parse_css` →
+  `PostCssTransformedAsset::process` → `evaluate_webpack_loader` →
+  "creating new process" → child process exited before connect, Windows
+  exit code 0xc0000142 / STATUS_DLL_INIT_FAILED), identically for every
+  route touching app/globals.css — i.e., every route in the app. This
+  explained "mobile shows blank" as the SAME root cause, not a separate
+  mobile-specific bug (a universal build failure breaks rendering for every
+  client).
+  Root-Cause Investigation: confirmed the correct native
+  `lightningcss.win32-x64-msvc.node` binary was present on disk; tested it
+  in isolation via a direct `node -e "require('lightningcss')..."` call,
+  which succeeded cleanly — ruling out a corrupted/missing native module.
+  Checked for orphaned node.exe processes — none found, ruling out a live
+  port/resource conflict. Conclusion: Turbopack's persistent on-disk
+  `.next/cache` (which stores worker-process pool state) had most likely
+  been corrupted by the session's preceding pattern of repeatedly
+  force-killing the dev server (`Stop-Process -Force`, used several times
+  across the preceding turns) rather than a graceful shutdown — a forcibly
+  killed Turbopack process mid-write does not get a chance to flush its
+  cache files consistently.
+  Resolution: `rm -rf .next` (full cache clear) + removed the stale panic
+  log + re-confirmed zero orphaned node.exe processes + a fresh `npm run
+  dev`. Verified: curled every route post-restart, all 200 (or the expected
+  307 for /admin), zero FATAL/panic lines in the fresh log. No source code
+  changes were required — the only lasting artifact was the deleted stale
+  cache and panic log, neither version-controlled.
+
+  [Commit and push, before the 00:28:33 cutoff]
+  All of Phase 2 and Phase 3's work committed together as a single commit
+  (matching this repo's own established convention of bundling one logical
+  work session into one commit): f87ce16, "feat: dynamic favicon/titles,
+  optional post time, and layout fixes" — 20 files changed, 440
+  insertions(+), 99 deletions(-).
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- Title-template ownership installed at `app/(site)/layout.tsx`, not the
+  true root: a documented, explicitly-flagged deviation from the literal
+  prompt, avoiding a large, unrequested, cross-cutting title-doubling
+  breakage across every admin page.
+- React `cache()` wrapping around `generateMetadata`'s data source:
+  `generateMetadata` and the page/layout component are both invoked once
+  per request for the same data — without `cache()`, both call sites would
+  independently query the Data Cache, doubling cache-telemetry counts
+  without any real additional Supabase egress.
+- `select("*")` over an explicit named-column list for `site_settings`:
+  PostgREST rejects a query's entire result if even one named column
+  doesn't exist yet — turning a single not-yet-migrated column into a
+  site-wide chrome outage. `select("*")` degrades gracefully instead, and
+  this fix specifically EXTENDS an already-proven convention used elsewhere
+  in the same file (the `nav_links` query), rather than inventing a new one.
+- `h-dvh`-class sticky-layout technique (the sidebar-scroll fix) was later
+  discovered, the very next day, to have a mobile-specific edge case of its
+  own — see the 2026-09-13 dossier's own sidebar work and later sessions'
+  `h-dvh` refinement for the full resolution; this day's fix used
+  `h-screen`, corrected to `h-dvh` in a subsequent session once a mobile
+  Safari/Chrome toolbar-clipping issue was found.
+- Diagnostic-script discipline maintained: temporary favicon-generation
+  scripts written, run, and deleted within the same turn, never committed.
+- Turbopack cache corruption attributed to repeated force-kills, not fixed
+  by "avoid force-killing" as a rule going forward — the practical fix
+  (clear `.next/cache` on any future unexplained Turbopack panic) is the
+  durable, actionable lesson, since some force-kills are unavoidable when a
+  dev server must be stopped quickly.
+
+4. COMPLETE REPOSITORY IMPACT (FILES TOUCHED)
+--------------------------------------------------------------------------------
+f87ce16 (20 files): app/icon.tsx (new), public/favicon.ico (new),
+app/(site)/layout.tsx (generateMetadata + select("*") fix),
+app/(site)/notable-works/page.tsx, complaints/page.tsx (bare title strings),
+posts/[id]/page.tsx (truncateTitle + formatPostDate), lib/truncate-title.ts
+(new), lib/post-date.ts (new),
+app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (new), actions.ts
+(updateSiteTitle), page.tsx, BrandingTextForm.tsx (reverted),
+app/admin/(protected)/posts/PostForm.tsx (show_published_time checkbox +
+useWatch fix), actions.ts, app/admin/(protected)/layout.tsx (h-screen +
+overflow-hidden), components/admin/AdminSidebar.tsx (h-full, shrink-0,
+internal nav scroll), components/site/SiteHeader.tsx (avatar fallback
+styling + onError), components/posts/PostsFeed.tsx,
+supabase/migrations/20260926000000_site_title.sql (new),
+20260927000000_post_optional_time.sql (new), types/database.types.ts
+(hand-edited).
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- No new environment variables. Supabase project ref utkwwtdkhqvdshbjwikm,
+  migrations applied live via `npx supabase db push` after explicit user
+  approval (AskUserQuestion).
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS (as of end of 2026-09-14)
+--------------------------------------------------------------------------------
+- `h-screen` (this day's sidebar fix) was later refined to `h-dvh` — see
+  the mobile-viewport correction the very next working session, which found
+  the combination of `h-screen` + `overflow-hidden` clips content behind a
+  mobile browser's visible toolbar chrome.
+- No outstanding uncommitted work; f87ce16 confirmed pushed
+  (`b23293b..f87ce16 main -> main`).
+- The Turbopack panic's root cause (stale `.next/cache` corrupted by
+  repeated force-kills) is not something code can prevent — if it recurs,
+  `rm -rf .next` + restart is the confirmed fix.
+================================================================================
+END OF DOSSIER
+================================================================================

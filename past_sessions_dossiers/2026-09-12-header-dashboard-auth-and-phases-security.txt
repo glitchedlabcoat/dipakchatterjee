@@ -1,0 +1,537 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: HEADER/DASHBOARD POLISH, OTP AUTH,
+PASSWORD MANAGEMENT, TRIGGER REPAIR, PHASES FEATURE, AND RLS SECURITY FIX
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-12 (all commits below dated this day, IST).
+  The single busiest day in this project's history — 17 commits.
+- Repository: dipakchatterjee (Next.js 16.3.4, Supabase, Tailwind v4).
+  Supabase project ref utkwwtdkhqvdshbjwikm.
+- Consolidated from three source dossiers (now superseded/deleted):
+  "header-dashboard-and-notification-pipeline-overhaul.txt" (direct, commits
+  734d3e8–c29fcb2), "admin-dashboard-auth-password-management-and-trigger-
+  fixes.txt" (direct, commits 65105e7–9c8e6fc), and "phases-and-features-
+  unification-security-audit-and-changelog-sync.txt" (direct, commits
+  96ce5a0/135b895; its remaining commits fb35cd8/c159647 landed 2026-09-13
+  and are documented in that day's dossier instead).
+- Core Objective: a long, continuous run of dashboard polish (header action
+  colors, post layout, hero alignment), a GitHub Actions Discord-notify CI
+  workflow, a dashboard-wide audit of unguarded Server Actions, dual-channel
+  OTP login with a feature-flagged bypass, self-service/admin-override
+  password management, three separate production bug root-causes (Server
+  Action redirect race, profiles_pkey collision, a broken hand-edited
+  Postgres trigger), a first-class "Phases" content feature, and a
+  permanent fix for a recurring RLS infinite-recursion bug.
+- Key constraints: zero-downtime/additive-only migrations; every commit ends
+  "Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"; git push only
+  on explicit instruction (several turns carried "keep this local" and were
+  later explicitly authorized to push); `git add -A` was blocked outright by
+  the Claude Code auto-mode permission classifier with reason "[Credential
+  Leakage]" all day — every commit staged files by explicit itemized path.
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+[734d3e8 — 00:39:08] Header action colors / post layout / slideshow
+interval / hero alignment / org rename
+  - Per-header-action background/text color pickers (new `header_actions.
+    bg_color`/`text_color` columns), applied dynamically on the public nav
+    bar via a `style` prop. NOTE: this migration was deliberately NOT
+    applied live in this commit — flagged as a pending, higher-risk action —
+    which directly caused the next bug (see d03199e below).
+  - Post detail page ("Read More"): rewrote the layout condition from
+    "only if a recognized embed exists" to `hasMedia = Boolean(embed) ||
+    post_media.length > 0`, fixing both the trigger condition and the
+    left/right column order (text left, media right — previously reversed).
+  - Per-post slideshow interval field (`posts.image_interval_ms`). Build
+    bug: an initial Zod schema (`z.union([z.coerce.number()..., z.literal("")])`)
+    broke zodResolver's generic type inference (a known z.coerce +
+    @hookform/resolvers/zod interaction issue) — fixed by using a plain
+    string field + `.refine()` instead, converting to/from string manually
+    at the form boundary.
+  - Hero alignment: wrapped both hero columns in flex-centering wrappers for
+    vertical centering — REVERSED the same day (see d03199e) once the user
+    clarified they wanted `items-start` (portrait flush with headline top).
+  - Organizations renamed "Affiliated With" → "Organizations Worked With";
+    designation line removed from the public card only (column/admin field
+    left untouched).
+  Migration: 20260912000000_header_action_colors_and_post_interval.sql.
+
+[d03199e — 01:08:46] Root-cause fix for error "776670661" / Nav Links
+manager / hero reversion / org flex row
+  - Event/Issue: error code "776670661" when adding a header action.
+  - Root Cause: `npx supabase migration list` showed 734d3e8's own migration
+    with `"remote":""` (never applied live). Confirmed via a direct
+    PostgREST query returning `{"code":"42703",...,"message":"column
+    header_actions.bg_color does not exist"}`. The resulting Postgres error
+    was correctly thrown server-side, but `HeaderActionsManager.tsx`'s
+    `handleAdd()` had NO try/catch — the unguarded await turned the thrown
+    error into an uncaught promise rejection inside a startTransition, which
+    Next.js surfaces to the browser as an opaque, redacted digest error.
+  - Resolution: (a) applied the pending migration live (first attempt
+    BLOCKED by the Claude Code auto-mode classifier, reason "[Production
+    Deploy]" — proceeded with other in-scope work first per the denial's own
+    instructions, retried successfully later in the same turn); (b) wrapped
+    every mutation path in HeaderActionsManager.tsx in try/catch with an
+    inline error state instead of silent failure.
+  - New "Navigation Links" management UI: `nav_links` table (label, url,
+    is_visible, display_order; RLS public-select/admin-all), seeded with
+    About/Public Life/Notable Works/Contact. New NavLinksManager.tsx
+    (dnd-kit reorder, visibility toggle) — authored AFTER the 776670661
+    root-cause was understood, so it never had the unguarded-promise bug.
+    SiteHeader.tsx's hardcoded NAV_LINKS array removed; filtering uses
+    `is_visible !== false` (not `=== true`) so an unmigrated `is_visible`
+    column doesn't silently hide every link.
+  - Hero alignment reverted to `items-start` per clarified instruction;
+    `object-top` added to the portrait image so a tall photo crops from the
+    top instead of centering.
+  - Organizations container changed to `flex flex-row flex-wrap
+    items-center justify-center gap-6 md:gap-10`.
+  Migration: 20260912010000_nav_links_and_action_visibility.sql.
+
+[b64e8ad — 01:13:49] Discord push notifications via GitHub Actions
+  New .github/workflows/discord-notify.yml: runs on every push to main,
+  installs deps, runs `npm run build` as a type-check/lint gate, then posts
+  a Discord embed (commit message/author/branch/run link) via `jq -n --arg`
+  (never string concatenation, to prevent injection from an unusual commit
+  message) using env-block variable passing (not inline `${{ }}`
+  interpolation in the shell script) to prevent GitHub Actions script
+  injection. `if: always()` so both clean and failed builds report.
+
+[cad539d — 01:43:19] Root-cause fix for "React error #441" / dashboard-wide
+audit / unified Header Navigation & Actions / hero badge / org wrap
+  - Event/Issue: "Minified React Error #441" on add/delete of nav/header
+    links. React's own error registry says #441 = "An error occurred in the
+    Server Components render... a digest property is included."
+  - Root Cause (re-confirmed, NOT a hooks-order bug): `npx supabase
+    migration list` showed BOTH of the day's earlier migrations with
+    `"remote":""` again — UNAPPLIED, despite having been verified live and
+    queryable at the end of the previous commit's turn. OPEN DISCREPANCY,
+    never definitively explained in-session: a successfully-applied,
+    verified migration reverted to "unapplied" between two turns against the
+    same linked Supabase project. Re-ran `supabase db push` — succeeded.
+  - Broadened audit: grepped every Settings list-editing manager for the
+    same unguarded-Server-Action pattern. Fixed CtaButtonsManager.tsx,
+    FooterBlocksManager.tsx, SocialLinksManager.tsx, OrganizationsManager.tsx
+    (all: handleDragEnd/handleDelete wrapped in try/catch, optimistic-state
+    rollback on failure). Final grep sweep confirmed zero unguarded
+    instances remained anywhere under app/admin.
+  - Merged "Navigation Links" and "Header Actions" into one
+    HeaderNavigationManager.tsx card ("Section A — Navigation Links" /
+    "Section B — Header Actions & Buttons").
+  - Header-action color swatch defaults fixed: was hardcoded white/black,
+    now defaults to the site's real theme primary color (background) / real
+    white (text, correctly kept — genuinely the solid style's default).
+  - Hero photo badge text (location/role) made admin-editable
+    (`site_settings.hero_badge_subtitle`/`hero_badge_title`).
+  - Configurable Organizations "max per row before wrap"
+    (`site_settings.org_max_per_row`, default 6, range 2–12): flex-wrap on
+    mobile, a CSS grid with exactly `min(count, maxPerRow)` tracks at `md:`.
+  Migration: 20260912020000_hero_badge_and_org_wrap_settings.sql.
+
+[c29fcb2 — 01:57:20] Expandable "Read More/Read Less" bio + local Discord
+push-notify script
+  - Hero bio: 5-line-clamped with smooth expand/collapse. Design: CSS
+    `line-clamp` cannot itself be animated, so the component server-renders
+    clamped (no flash), measures collapsed/full height via
+    `useLayoutEffect`, then drives an animatable `max-height` on an
+    `overflow-hidden` wrapper. Toggle only renders when content actually
+    overflows 5 lines. On collapse (not expand), `scrollIntoView({behavior:
+    "smooth", block: "nearest"})` runs before the state flip.
+  - Local (non-CI) Discord push notifier: `scripts/notify-discord.js` +
+    `npm run deploy:push` (`git push origin main && npm run notify:discord`)
+    — chosen over a git hook because git has no true "post-push" hook and
+    `.git/hooks/*` isn't version-controlled. Reads DISCORD_WEBHOOK_URL from
+    env or .env.local; skips gracefully (exit 0) if unset. A real webhook
+    URL was tested live (200/204 delivery confirmed) after fixing a Discord
+    400 (embed field length limit — this project's own commit messages are
+    long enough to hit it).
+
+[de999ba — 10:02:01] Dark mode removal, mobile header redesign, post
+thumbnails, split post media layout, tab settings
+  (Reconstructed from commit history/CHANGELOG — no first-hand session
+  transcript survives for this commit.) Stripped dark mode site-wide
+  (ThemeToggle deleted, `dark:` classes removed); redesigned mobile header
+  (Submit a Complaint pinned to the bar, other links moved to the hamburger
+  drawer); added a dedicated post thumbnail field independent of attached
+  media; split the post detail page strictly (uploaded images/video left,
+  external embed right); reorganized Settings into General/Header &
+  Navigation/Hero & Bio/Media & Display tabs; allowed decimal slideshow
+  intervals (step 0.1); gave organization cards uniform fixed dimensions.
+
+[d0d9df1 — 10:56:01] Homepage layout builder, mobile refinements, media
+crash fix, unsaved-changes guard
+  (Reconstructed.) Root-caused a post-editor media crash: addPostMedia/
+  addFeatureMedia had returned the client-generated storage path as a
+  stand-in for the real DB row id, so a delete/reorder immediately after
+  upload targeted the wrong row — both now return the real inserted row id.
+  Added Settings → Homepage Sections (drag-reorder/show-hide every homepage
+  section); extracted Organizations out of the hero into its own
+  reorderable/toggleable section; added a beforeunload + link-click
+  unsaved-changes guard to post/feature editors and key settings forms.
+
+[d4246eb — 11:42:53] Move post embed beside description
+  (Reconstructed.) Post text/embed split into two columns on desktop
+  (stacked mobile); uploaded images/video kept entirely out of that area,
+  rendering only in the dedicated Media section below.
+
+[ffebe65 — 12:01:09] Dual-channel login OTP, 15-minute inactivity session
+timer, user/role management
+  Login now requires a second factor: after password sign-in, a 6-digit OTP
+  (HMAC-hashed, 5-minute expiry, 5-attempt limit) sent simultaneously to
+  email (Resend) and phone (Fast2SMS/Twilio) — fails safe (if neither
+  provider is configured, the OTP step is skipped rather than issuing an
+  undeliverable code). A signed, HTTP-only `admin_otp_session` cookie is
+  required by proxy.ts for every /admin request alongside the Supabase
+  session. 15-minute inactivity timer in the dashboard header; activity
+  events slide the cookie's expiry forward via a throttled
+  /api/admin/heartbeat call; hitting zero signs out and redirects. Settings
+  → Users & Access: profiles carry email/phone/role; DB constraint enforces
+  exactly one ADMIN; role transfer/user deletion require re-entering the
+  admin's current password.
+  Migration: 20260914000000_otp_and_user_roles.sql.
+
+[1dbc0f6 — 12:18:05] Editable contact info, single-admin migration fix
+  Event/Issue: 20260914000000 failed to apply.
+  Root Cause: Postgres rejects converting a partial/expression unique index
+  into a deferrable constraint.
+  Resolution: materialized the single-admin check as its own generated
+  column (`admin_flag`) so a plain index on it can back the deferrable
+  constraint `transfer_admin_role()` needs. Added `updateContactInfo`: any
+  profile can edit its own email/phone, admin can edit anyone's; requires
+  the caller's password when email is changing or an admin edits someone
+  else's row; syncs both `profiles` and Supabase Auth best-effort.
+
+[c04ce55 — 12:24:42] Complaint page copy, video thumbnail previews
+  Softer complaint-page copy; swapped the generic file icon for a real
+  video-frame thumbnail in the staged-file preview (video attachments were
+  already fully supported end-to-end since 0f06030).
+
+[d0a375d — 13:43:26] Mandatory two-step OTP login, MODERATOR role, org
+card styling
+  Event/Issue: OTP bypass existed; `profiles.is_admin` defaulted to true.
+  Fix: password verification now issues only a short-lived
+  `admin_pending_2fa` cookie and redirects to a real `/admin/verify-otp`
+  route, which grants the dashboard session only after a valid one-time
+  code. Fixed the `is_admin` default-true bug (was breaking new-user
+  creation once an ADMIN already existed). Added a MODERATOR role.
+  Organization cards restyled: removed borders/truncation in favor of
+  circular logos and natural text wrapping; wired header branding settings
+  into the admin sidebar and login/verify-OTP screens.
+  Migrations: 20260915000000_moderator_role.sql,
+  20260915010000_fix_is_admin_default.sql.
+
+[65105e7 — 15:08:42] OTP bypass via feature flag, streamlined roles,
+full codebase audit
+  - `FEATURE_FLAGS.REQUIRE_OTP = process.env.ENABLE_ADMIN_2FA === "true"`
+    (default off): signs straight into the dashboard after a correct
+    password when off; the OTP route/UI/table/email dispatch all stay in
+    place, untouched — the flag only short-circuits the two call sites that
+    decide whether to invoke it.
+  - Simplified to two-tier ADMIN/USER (dropped MODERATOR from d0a375d).
+  - `next lint` was removed in Next.js 16 (confirmed via
+    node_modules/next/dist/docs); stood up ESLint via the flat-config CLI
+    (`eslint.config.mjs`, eslint-config-next). First real lint run: 22
+    problems (15 errors, 7 warnings). Fixed:
+      * react-hooks/set-state-in-effect (`useEffect(() => setMounted(true),
+        [])` hydration-guard pattern, 8 files) → new
+        `lib/hooks/useHydrated.ts` built on `useSyncExternalStore`,
+        collapsing a two-render sequence into React's own hydration
+        reconciliation.
+      * react-hooks/refs (reading `.current` during render,
+        PublicLifeGallery.tsx) → moved the read into the pointerdown
+        handler, storing the result in state for use during render.
+      * react-hooks/purity + immutability (SessionTimer.tsx: `Date.now()`
+        evaluated as a `useRef()` initializer is impure;
+        `handleExpire` used before declaration) → refs seeded with `0`,
+        real timestamps assigned inside the effect body;
+        `handleExpire` converted to `useCallback`, declared before its
+        effect, added to that effect's dependency array.
+      * react-hooks/set-state-in-effect (RevealOnScroll.tsx) → new
+        `lib/hooks/usePrefersReducedMotion.ts` (same
+        useSyncExternalStore pattern); remaining one-shot fallback checks
+        deferred via `queueMicrotask(reveal)`.
+      * @next/next/no-html-link-for-pages (SiteHeader.tsx logo `<a>`) →
+        swapped for `next/link`.
+      * 7 warnings addressed via scoped `eslint-disable-next-line` (not
+        behavior changes) for intentional hard `window.location.assign`
+        navigations (force a fresh server-side cookie read, bypassing
+        client router cache) and one intentional plain `<img>`
+        (MediaPlayer.tsx, needs draggable/context-menu control).
+    Third lint run: 0 errors, 0 warnings.
+  - Also this commit: fixed a React state-in-render warning
+    (ExpandableBio.tsx calling `onExpandedChange?.()` inside a `setExpanded`
+    updater callback — split into two sequential top-level statements);
+    added `data-scroll-behavior="smooth"` to `<html>` for Next 16's router
+    smooth-scroll; investigated (not fixed) OTP email non-delivery —
+    RESEND_API_KEY/RESEND_FROM_EMAIL were simply absent from .env.local,
+    the console-log fallback was already working as documented, no code
+    bug; dynamic per-route/per-tab dashboard titles.
+  42 files changed, 5884 insertions(+), 530 deletions(-).
+
+[5c5638c — 15:37:24] Self-service and admin-override password change
+  `changeOwnPassword(current, new)`: re-verifies via the existing
+  `verifyPassword()` helper (throwaway anon-key client, `signInWithPassword`
+  purely to re-check credentials), then `supabase.auth.updateUser()`.
+  `adminResetPassword(targetUserId, adminPassword, new)`: requires
+  `requireOwner()` (caller must be the single ADMIN), re-verifies the
+  admin's own password, blocks targeting your own account (use Change
+  Password instead), uses the service-role `auth.admin.updateUserById`.
+  New shared PasswordInput.tsx (show/hide toggle), ChangePasswordModal.tsx,
+  AdminResetPasswordModal.tsx. Verified via a real functional test script
+  against the live Supabase Auth API (create → sign in wrong/right password
+  → change/reset → sign in old/new password → delete test users), not just
+  code review.
+
+[9c8e6fc — 16:42:50] Server Action redirect race on login; profile upsert;
+broken new-user trigger
+  Bug 1 — "Failed to fetch" on /admin/login despite the user actually being
+  signed in:
+  Root Cause: `signInWithPassword()` sets the session cookie synchronously
+  before the next line calls the `requestLoginOtp()` Server Action, which
+  Next implements as a fetch POST back to the SAME URL (/admin/login).
+  proxy.ts runs on every matching request including that POST; with
+  REQUIRE_OTP off, `isOtpVerified = Boolean(user)` is now true for that very
+  POST (the cookie was already set), so proxy.ts substitutes a raw HTTP
+  redirect AS THE RESPONSE to the Server Action's own fetch — corrupting
+  Next's action-response protocol, surfacing as "Failed to fetch" client-side.
+  Fix: `const isServerAction = request.headers.has("next-action")` — every
+  existing redirect branch in the `/admin` block is now skipped entirely for
+  any request carrying that header (generalized to the structurally correct
+  invariant, not patched narrowly for the one reported route). Verified by
+  deliberately `git stash`-restoring the pre-fix code, reproducing the bug
+  on demand (307 redirect on a next-action POST), then restoring the fix and
+  reconfirming (404/no-redirect, correctly passed through to Next's action
+  dispatcher).
+  Bug 2 — `duplicate key value violates unique constraint "profiles_pkey"`
+  on new-user creation:
+  Root Cause: a pre-existing `handle_new_user()` Postgres trigger already
+  auto-inserts a bare profiles row the instant `auth.admin.createUser()`
+  succeeds; `createUserAccount`'s own subsequent plain `.insert()` with the
+  same id always collided.
+  Fix: `.upsert({...}, {onConflict: "id"})` — deliberately omits `role` from
+  the payload (it's a Postgres STORED GENERATED column; any write to it is
+  always rejected regardless of value) and substitutes `is_admin: false`.
+  Bug 3 (deeper, found via a user-pasted log after Bug 2's fix) —
+  `auth.admin.createUser()` itself failing with "Database error creating
+  new user" (GoTrue wrapper, status 500), for every email, reproducibly:
+  Investigation was genuinely blocked for a time — GoTrue hides the real
+  Postgres error, and the Supabase CLI had no authenticated project access
+  (`SUPABASE_ACCESS_TOKEN` unset, no cached credential). User re-authenticated
+  the CLI (`npx supabase login`, an interactive browser flow this assistant
+  cannot perform). Once restored: `select pg_get_functiondef(oid) ... where
+  proname = 'handle_new_user'` revealed the trigger's actual live body — it
+  wrote directly to `role` (a STORED GENERATED column, always rejected) AND
+  referenced an `updated_at` column that does not exist anywhere on
+  `public.profiles`. Because this trigger runs AFTER INSERT on `auth.users`,
+  its failure aborted the entire enclosing transaction, which is why
+  `createUser()` itself failed for literally every signup. This trigger
+  predates the migrations folder entirely (hand-edited directly in the
+  Supabase SQL editor at some undetermined point, outside version control).
+  Fix: `supabase/migrations/20260918000000_fix_handle_new_user_trigger.sql`
+  — a correct, minimal `handle_new_user()` that only inserts `(id, email)`
+  on conflict do update email, deliberately omitting `is_admin` (relies on
+  its column default) and `full_name` (left to `createUserAccount`'s own
+  immediately-following upsert). Applied live via `supabase db push
+  --linked`; verified end-to-end using the exact email/password from the
+  user's originally pasted failure log.
+  Every diagnostic script across this day's OTP/auth work followed a
+  consistent discipline: written into scripts/ (for node_modules
+  resolution), used throwaway timestamp-suffixed test accounts, cleanup
+  always wrapped in a `finally` block, and the real admin row independently
+  re-queried before/after every test to confirm zero collateral impact.
+
+[96ce5a0 — 23:36:44] Phases as a first-class feature; Notable Works refactor
+  New `phases` life-milestones feature: admin CRUD with create/edit/pin/
+  reorder, inline JSONB photo gallery with captions; public showcase section
+  + archive page. Notable Works: replaced separate external_link/
+  facebook_url/embed_code post fields with a single structured `links` JSONB
+  array (embed vs. button, optional label) via a dynamic link builder. Added
+  a 0–10s slideshow_interval (0 disables auto-advance) and a configurable
+  homepage display limit, both pin-aware. Post detail page resolves the
+  first working embed link and adapts layout; PostEmbed hides itself
+  silently on iframe load failure instead of showing a broken embed. This
+  work (and the next commit) had actually been implemented earlier in the
+  day's session but was left uncommitted until this point, when it was
+  deliberately split into its own honest commit rather than folded into the
+  security-fix commit below.
+  Migrations: 20260919000000_life_phases_pinning_and_embeds.sql,
+  20260920000000_phases_promotion_and_links_refactor.sql.
+
+[135b895 — 23:36:58] fix(security): resolve RLS recursion, audit admin
+auth policies, sync schema types
+  Event/Issue: user requested "an exhaustive security, schema, and error
+  audit across the entire Supabase database and frontend codebase," with
+  explicit priority: eliminate a recurring RLS infinite-recursion / "minifeed"
+  error permanently, across all admin accounts.
+  Root Cause: circular RLS policy definitions on `public.profiles` — the
+  policy gating admin-only writes queried `profiles` itself (to check
+  `is_admin`), which re-triggered RLS evaluation on `profiles`, which re-ran
+  the same admin check, recursing indefinitely.
+  Resolution: a new `is_admin()` function as `SECURITY DEFINER` with `SET
+  search_path = public, pg_temp` (preventing search-path-hijack privilege
+  escalation on an unpinned SECURITY DEFINER function), sourcing admin
+  status from JWT `app_metadata` OR a decoupled `public.admins` table — a
+  table with NO client-facing RLS policies of its own, so reading it can
+  never itself trigger a recursive RLS check. This "read via SECURITY
+  DEFINER, bypass RLS as table owner" pattern was the same one reused the
+  next day for the dashboard_activity_logs prune trigger. `profiles` RLS
+  reset to: public/authenticated SELECT=true, self-scoped UPDATE, self-scoped
+  INSERT — eliminating every circular reference. Synced admin JWT claims for
+  existing users in both `raw_app_meta_data` and `raw_user_meta_data`.
+  Audited every frontend Supabase call site, wrapped auth/data loaders in
+  try/catch, added dedicated error boundaries (app/(site)/error.tsx,
+  app/admin/(protected)/error.tsx, app/global-error.tsx).
+  Migration: 20260921000000_audit_and_fix_rls.sql.
+  Two pushes this day: `135b895..fb35cd8` and `fb35cd8..c159647` land the
+  next morning (2026-09-13) — see that day's dossier for the Phases-under-
+  Features unification work that followed directly from this fix.
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- RLS recursion can never be fixed by rewriting a table's own self-
+  referential policy — the only way to break the cycle is to source the
+  admin-check truth from somewhere RLS evaluation on `profiles` doesn't
+  touch (JWT claim, or a SECURITY DEFINER read of a policy-free table).
+  `SET search_path = public, pg_temp` on every such function is a
+  deliberate, repeated mitigation against search-path-hijack privilege
+  escalation, not boilerplate.
+- Feature-flag placement (`FEATURE_FLAGS.REQUIRE_OTP`) gates only the two
+  call sites that decide whether to invoke the OTP challenge, never deletes
+  or comments out OTP code — the requirement was "preserved behind a
+  toggle," and a minimal-surface-area boolean short-circuit around
+  pre-existing, already-tested logic is lower-risk than any structural
+  removal, and trivially reversible.
+- `useSyncExternalStore` over `useState`+`useEffect` for hydration/media-
+  query detection: collapses a two-render sequence into React's own
+  hydration reconciliation, eliminating both the extra render and the
+  underlying lint violation — judged a genuine improvement, not lint
+  appeasement.
+- `eslint-disable` comments (not behavior changes) for `window.location.
+  assign` calls: these hard navigations exist specifically to force a fresh
+  server-side cookie read with zero client router cache involved — replacing
+  them with `router.push()` would reintroduce a previously-fixed bug class.
+- Upsert with `onConflict: "id"`, omitting `role`, for `createUserAccount`:
+  the only reliable fix given a pre-existing trigger auto-creates the row;
+  `role` is a generated column and any write to it fails unconditionally.
+- Minimal trigger replacement (not a "smarter" one) for `handle_new_user()`:
+  intentionally omits `is_admin` (relies on its column default `false`,
+  avoiding any risk of colliding with the deferred single-admin constraint)
+  and `full_name` (left to app code, avoiding duplicated business logic
+  living in both app code and a hand-maintained SQL trigger — exactly how
+  the broken version had drifted in the first place).
+  `isServerAction` header check generalized to skip ALL redirect branches
+  uniformly, not just the one that produced the observed bug: substituting a
+  raw redirect for any Server Action's own request is unconditionally wrong,
+  regardless of which branch triggers it.
+- Diagnostic-script discipline (consistent across every live-database test
+  this day): written into scripts/ (never scratchpad-only, for node_modules
+  resolution), throwaway timestamp-suffixed accounts, cleanup always in a
+  `finally` block, real production rows independently re-queried before/
+  after to positively confirm zero collateral impact.
+
+4. COMPLETE REPOSITORY IMPACT (FILES TOUCHED)
+--------------------------------------------------------------------------------
+734d3e8 (10 files): app/(site)/page.tsx, app/(site)/posts/[id]/page.tsx,
+app/admin/(protected)/posts/PostForm.tsx, actions.ts,
+app/admin/(protected)/settings/HeaderActionsManager.tsx, header-actions.ts,
+components/OrganizationLogos.tsx, components/site/SiteHeader.tsx,
+supabase/migrations/20260912000000_header_action_colors_and_post_interval.sql
+(new), types/database.types.ts.
+
+d03199e (12 files): app/(site)/layout.tsx, page.tsx,
+app/admin/(protected)/settings/HeaderActionsManager.tsx,
+NavLinksManager.tsx (new), header-actions.ts, nav-links-actions.ts (new),
+page.tsx, components/OrganizationLogos.tsx, components/site/SiteHeader.tsx,
+supabase/migrations/20260912010000_nav_links_and_action_visibility.sql
+(new), types/database.types.ts, domain.ts.
+
+b64e8ad (1 file): .github/workflows/discord-notify.yml (new).
+
+cad539d (14 files): app/(site)/page.tsx, app/admin/(protected)/settings/
+CtaButtonsManager.tsx, FooterBlocksManager.tsx, HeaderActionsManager.tsx,
+HeaderNavigationManager.tsx (new), LandingForm.tsx, NavLinksManager.tsx,
+OrganizationsManager.tsx, SocialLinksManager.tsx, actions.ts, page.tsx,
+components/OrganizationLogos.tsx,
+supabase/migrations/20260912020000_hero_badge_and_org_wrap_settings.sql
+(new), types/database.types.ts.
+
+c29fcb2: components/ExpandableBio.tsx (new/rewritten), scripts/
+notify-discord.js (new), package.json, .env.example.
+
+65105e7 (42 files): lib/feature-flags.ts (new), eslint.config.mjs (new),
+lib/hooks/useHydrated.ts (new), usePrefersReducedMotion.ts (new),
+components/ExpandableBio.tsx, app/layout.tsx,
+app/admin/(protected)/{page,features/page,posts/page,complaints/page,
+settings/page}.tsx (metadata titles), settings/SettingsTabs.tsx,
+app/admin/login/actions.ts, proxy.ts, plus the 8 useHydrated() swap sites,
+components/PublicLifeGallery.tsx, components/admin/SessionTimer.tsx,
+components/RevealOnScroll.tsx, components/site/SiteHeader.tsx,
+components/MediaPlayer.tsx, app/admin/login/LoginForm.tsx,
+app/admin/verify-otp/VerifyOtpForm.tsx, components/admin/SignOutButton.tsx,
+package.json, package-lock.json.
+
+5c5638c (6 files): app/admin/(protected)/settings/UsersManager.tsx,
+user-actions.ts, components/admin/MyContactInfoCard.tsx,
+AdminResetPasswordModal.tsx (new), ChangePasswordModal.tsx (new),
+PasswordInput.tsx (new).
+
+9c8e6fc (3 files): app/admin/(protected)/settings/user-actions.ts, proxy.ts,
+supabase/migrations/20260918000000_fix_handle_new_user_trigger.sql (new).
+
+96ce5a0 (28 files): app/(site)/notable-works/page.tsx (new), page.tsx,
+phases/page.tsx (new, later deleted), posts/[id]/page.tsx,
+app/admin/(protected)/phases/* (new: PhaseForm.tsx, PhaseList.tsx,
+PhasePhotosManager.tsx, [id]/page.tsx, actions.ts, new/page.tsx, page.tsx),
+app/admin/(protected)/posts/PostForm.tsx, PostList.tsx, actions.ts, page.tsx,
+app/admin/(protected)/settings/HomepageLayoutManager.tsx,
+NotableWorksLimitControl.tsx (new), actions.ts,
+components/phases/PhasesShowcase.tsx (new, later deleted),
+components/posts/PostEmbed.tsx, PostImageCarousel.tsx, PostsFeed.tsx,
+lib/embed.ts, lib/homepage-layout.ts, package.json,
+supabase/migrations/20260919000000_life_phases_pinning_and_embeds.sql (new),
+20260920000000_phases_promotion_and_links_refactor.sql (new), types/domain.ts.
+
+135b895 (~10 files): supabase/migrations/20260921000000_audit_and_fix_rls.sql
+(new), app/(site)/error.tsx (new), app/admin/(protected)/error.tsx (new),
+app/global-error.tsx (new), plus every audited frontend Supabase call site's
+try/catch wrapping and types/database.types.ts regeneration.
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- ENABLE_ADMIN_2FA (added, server-only, default "false").
+- RESEND_API_KEY / RESEND_FROM_EMAIL — inspected, confirmed ABSENT; OTP
+  email delivery remains console-log-only until the user configures Resend.
+- SUPABASE_ACCESS_TOKEN — the Supabase CLI's own auth token, distinct from
+  project API keys; was unset, causing the Phase-7/Bug-3 CLI-access failure;
+  resolved via `npx supabase login` (interactive, user-performed).
+- GitHub remote: pushes this day went to `subhodipc51234-web/dipakchatterjee`
+  (redirecting successfully to `glitchedlabcoat/dipakchatterjee` on every
+  push, per GitHub's "repository moved" notice) — the origin URL itself was
+  not updated to the canonical location during this day's work (later
+  resolved by 2026-09-13, since AGENTS.md/repo state from 2026-09-15 onward
+  shows origin already correct).
+- Discord: DISCORD_WEBHOOK_URL (local notify script), secrets.DISCORD_WEBHOOK
+  (GitHub Actions).
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS (as of end of 2026-09-12)
+--------------------------------------------------------------------------------
+- Two commits from this evening's Phases/security work (fb35cd8, c159647)
+  were pushed early the next morning (2026-09-13) — see that day's dossier
+  for the "streamline Phases under Features" and "unify Phases into Features
+  as a Section Type" follow-through.
+- RESEND_API_KEY/RESEND_FROM_EMAIL still absent — moot while
+  ENABLE_ADMIN_2FA=false, but relevant again if 2FA is ever enabled.
+- GitHub remote URL pointed at the old `subhodipc51234-web` location all day
+  (pushes succeeded via redirect throughout) — confirmed corrected by
+  2026-09-15's dossier, exact commit not identified.
+- No partially-applied migrations and no known outstanding runtime errors
+  from this day's own work by end of day; every reported bug (776670661,
+  React #441, "Failed to fetch", profiles_pkey collision, "Database error
+  creating new user") was root-caused, fixed, and independently verified
+  against the live Supabase project before being reported resolved.
+================================================================================
+END OF DOSSIER
+================================================================================

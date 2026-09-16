@@ -1,0 +1,241 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: NEXT.JS REWRITE, RENDER DEPLOYMENT,
+AND FIRST FEATURE BATCH (HEADER BUILDER, POST EMBEDS, ORGANIZATIONS)
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-11 (all commits below are dated 2026-09-11,
+  IST/+0530; the legacy static-HTML-site era that preceded this, commits
+  c37fdd3 through 0f0de8b dated 2026-09-10 19:23 through 2026-09-11 01:44,
+  predates the Next.js application entirely and is deliberately not itemized
+  here — per CHANGELOG.md's own convention, "renamed dipak-chatterjee.jpeg to
+  .jpg" is noise, not signal).
+- Repository: dipakchatterjee (Next.js 16.3.4, App Router, Turbopack, React
+  19, Supabase Postgres+Auth+Storage, Tailwind v4). Deployed on Render.
+- Consolidated from two source dossiers (now superseded/deleted): the Render
+  deployment portion of "render-deployment-feature-rollout-and-facebook-
+  embeds.txt" (Phases A-D, direct/summarized) and reconstructed commit-body
+  detail for the same day's feature commits.
+- Core Objective: replace the hand-authored static HTML/CSS site with a
+  dynamic Next.js application, stand up Render hosting for it, then ship the
+  first batch of real admin-dashboard features (header/nav builder, post
+  embeds and carousels, dynamic contact email, complaint reference numbers,
+  organizations showcase, root-relative section anchors).
+- Key constraints: zero/near-zero hosting cost (Render free tier); every
+  schema change additive-only; commits end with "Co-Authored-By: Claude
+  Sonnet 5 <noreply@anthropic.com>".
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+[Commit 0f06030 — 21:11:14 +0530]
+  "refactor: replace legacy hardcoded site with dynamic Next.js application"
+  The ~106-file foundational rewrite: hand-authored static HTML/CSS/JS
+  replaced wholesale with the Next.js 16 App Router application this
+  codebase has been built on ever since (Supabase-backed admin dashboard,
+  public portfolio site). Described narratively rather than exhaustively
+  file-listed — see the commit itself for full detail.
+
+[Commit 212e531 — 21:46:42 +0530, then superseded same evening]
+  "Add Render Blueprint config with standalone output"
+  Event: stood up automated Render deployment via a render.yaml Blueprint
+  (service type web, plan free, env node) plus `output: "standalone"` in
+  next.config.ts for a lighter, low-memory-optimized build.
+
+[Commit a15498b — 22:00:20 +0530]
+  "Fix Render build: install devDependencies during build"
+  Root Cause: Render's build step runs with `NODE_ENV=production`; a plain
+  `npm install` under that env silently skips all devDependencies —
+  `@tailwindcss/postcss`, `tailwindcss`, `postcss`, and `typescript` are all
+  devDependencies required just to run `next build` itself. Verified locally
+  via `NODE_ENV=production npm install --dry-run` showing `remove
+  @tailwindcss/postcss`.
+  Fix: render.yaml's buildCommand changed to `npm install --include=dev &&
+  npm run build && cp -r .next/static .next/standalone/.next/static` (the
+  `cp -r` step needed separately because standalone output excludes static
+  assets by default). Also removed the hardcoded `PORT` env var.
+
+[Commit f9d99b1 — 22:00:54 +0530]
+  "Remove render.yaml"
+  Event: user: "i am not using that render.yaml file. also, i need this file
+  removed from the repo as well." — explicit instruction to abandon the
+  Blueprint approach in favor of manual Render-dashboard-only configuration
+  going forward (not a technical failure of Blueprint itself; a deliberate
+  operational choice).
+  Resolution: `git rm render.yaml`. Commit body: "Deploying via manual
+  Render dashboard settings instead of Blueprint."
+
+  [Dashboard-only follow-up, no commit — Render 502/blank-page bug]
+  Event/Issue: after "live" deploy, the site returned 502/was blank. Render's
+  own runtime log showed the printed "Local"/"Network" URLs both using the
+  container's own auto-assigned hostname instead of a bindable address.
+  Root Cause: `.next/standalone/server.js` (line 15) reads
+  `process.env.HOSTNAME || '0.0.0.0'`. Every Linux container (Render's
+  included) auto-sets its own `HOSTNAME` env var to the container id/name,
+  overriding the safe `'0.0.0.0'` fallback and binding the server to an
+  address nothing outside the container can reach.
+  Resolution: added `HOSTNAME=0.0.0.0` as a Render dashboard environment
+  variable (no code change — this remains the load-bearing, easy-to-forget
+  setting if the Render service is ever recreated from scratch). From this
+  point on, local verification used the real standalone server
+  (`HOSTNAME=0.0.0.0 PORT=<n> node .next/standalone/server.js`, with
+  `.next/static` pre-copied) rather than `next start`, which itself warns it
+  does not work with `output: standalone`.
+
+[Commit 2c7c760 — 22:50:44 +0530]
+  "Add header builder, post embeds/carousels, dynamic contact email, and
+  complaint reference numbers"
+  Six-part feature batch:
+  - Global dynamic contact-email management, propagated to header/footer/
+    complaint confirmations/metadata (site_settings.office_email).
+  - Complaint success view rewritten: removed "our team will call you"
+    promise, promoted the reference number (new lib/reference.ts,
+    formatReferenceNumber(id) => "REF-" + id.slice(0,8).toUpperCase()),
+    exposed in the admin dashboard with a copy button.
+  - Header builder & action-button customization: new `header_actions` table
+    (label, url, icon enum, style enum solid/outline/link, position
+    left/right, display_order; RLS public-select/admin-all), seeded with
+    "Submit a Complaint"; new HeaderActionsManager.tsx admin UI;
+    SiteHeader.tsx rewritten to accept an `actions: HeaderAction[]` prop.
+  - Post media enhancements: multiple attachments, external embed links
+    (YouTube/Instagram/Facebook) via new lib/embed.ts, side-by-side
+    embed+text layout on the post detail page, multi-image carousel default
+    3s (new components/posts/PostEmbed.tsx, PostImageCarousel.tsx).
+  - Public gallery carousel speed control in the dashboard
+    (site_settings.gallery_interval_ms, default 6000ms).
+  - proxy.ts CSP gained: `frame-src 'self' https://www.youtube.com
+    https://www.youtube-nocookie.com https://www.facebook.com
+    https://www.instagram.com;`.
+  Migration: 20260911230000_header_actions_and_gallery_interval.sql.
+  Verified: tsc --noEmit, full production build, disposable admin session
+  hitting every changed public and admin route.
+
+[Commit bae426e — 23:13:12 +0530]
+  "Full-color organization hover showcase; optional complaint phone number"
+  - Organizations Section Interactive Showcase: full-color logos (no
+    grayscale/opacity filters), name+designation, hover-to-expand
+    interaction (collapsed max-w-0 opacity-0, hover expands an inline label,
+    siblings pushed aside). New `organizations.designation` column.
+  - Complaint phone number made strictly optional client+server side: Zod
+    schema changed to a single `.refine()` predicate (`v === "" || v.length
+    >= 6`) — deliberately chosen over `.optional().or(z.literal(''))`
+    because a Zod union stacked on a refined schema produces ambiguous
+    `invalid_union` per-field error paths through react-hook-form's
+    zodResolver. `complaints.contact_phone` made nullable; admin UI shows
+    "Not provided" fallback instead of a dead tel: link.
+  Migration: 20260911240000_organization_designation_and_optional_phone.sql.
+
+[Commit 24c6d03 — 23:29:27 +0530]
+  "Scope dev indicator to admin, make organizations a static grid"
+  - Reversed bae426e's hover-expand Organizations design per direct user
+    instruction: replaced with a static `grid grid-cols-2 sm:grid-cols-3
+    gap-4`, larger full-color logos, bold name + smaller designation always
+    visible, no collapsed state, no transitions.
+  - Dev Indicator Visibility Control: the Next.js dev-mode floating
+    indicator ("nextjs-portal") hidden site-wide by default in
+    app/globals.css (`display: none !important`), re-enabled only inside
+    the admin layout via a scoped inline `<style>` override — dev-only
+    either way, since `next dev` never ships this element in production.
+
+[Commit fc1641d — 23:41:41 +0530]
+  "Root-relative section anchors with cross-page smooth scroll"
+  Event/Issue: header nav links, header logo, footer quick links, and hero
+  CTA buttons all pointed at bare same-page hashes (#about, #works, etc.) —
+  correct only while already on the homepage, a silent no-op from any other
+  page.
+  Root Cause: a bare hash href resolves relative to the current path, so on
+  a subpage (e.g. /complaints) `href="#about"` does nothing.
+  Resolution: converted every one to root-relative form ("/#about" etc.)
+  with pathname-aware click handling — if already on "/", intercept and
+  smoothly scrollIntoView instead of a same-route reload; anywhere else, a
+  plain navigation to "/#section" lands correctly and Next.js scrolls to the
+  target once the homepage renders. New components/site/AnchorAwareLink.tsx
+  wraps next/link with this behavior for server components (SiteFooter,
+  CtaButtonGroup); SiteHeader (already client) implements it inline. Logo
+  link changed from a broken `href="#top"` to `href="/"` with its own
+  scroll-to-top handling. Also fixed three live database rows (footer_links,
+  cta_buttons) still storing bare "#..." URLs via a one-off data update — no
+  schema change needed.
+  Content gap flagged honestly, not papered over: after this work, `id="about"`
+  did not exist anywhere in the rendered homepage HTML (no published
+  "About"-type Feature row existed at that time) — reported as a pre-existing
+  content gap.
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- render.yaml Blueprint abandoned in favor of manual dashboard configuration:
+  not a technical failure (the devDependencies build issue was fixable
+  within render.yaml itself), but a deliberate operational choice by the
+  user to manage Render settings by hand going forward.
+- `output: "standalone"` + HOSTNAME override, not a patched server.js: the
+  generated server.js is a build artifact regenerated on every build, so the
+  durable fix had to be an env var (`HOSTNAME=0.0.0.0`) set once in the
+  Render dashboard, not a code change.
+- Complaint phone validation via a single `.refine()`, not a Zod union: a
+  union stacked on a refine produces ambiguous per-field error paths through
+  react-hook-form's zodResolver; refine keeps the error path unambiguous.
+- Organizations section design reversed within the same day (hover-expand →
+  static grid) because the user's instruction was an explicit reversal, not
+  an incremental patch — treated as a full replacement to avoid a
+  half-migrated hybrid state. This section's design continued to churn
+  across the following days (see 2026-09-12/13 dossiers).
+
+4. COMPLETE REPOSITORY IMPACT (FILES TOUCHED)
+--------------------------------------------------------------------------------
+Deployment: render.yaml (created, iterated, deleted), next.config.ts
+(`output: "standalone"`), Render dashboard `HOSTNAME=0.0.0.0` (not a repo
+file).
+
+2c7c760: supabase/migrations/20260911230000_header_actions_and_gallery_interval.sql
+(new), lib/reference.ts (new), lib/embed.ts (new), components/posts/
+PostEmbed.tsx (new), components/posts/PostImageCarousel.tsx (new),
+app/admin/(protected)/features/GalleryIntervalControl.tsx (new),
+app/admin/(protected)/settings/header-actions.ts (new),
+app/admin/(protected)/settings/HeaderActionsManager.tsx (new), proxy.ts,
+components/site/SiteHeader.tsx, components/PublicLifeGallery.tsx,
+components/features/FeatureSection.tsx, components/complaints/
+ComplaintForm.tsx, app/admin/(protected)/complaints/ComplaintList.tsx,
+ComplaintDetailModal.tsx, app/admin/(protected)/settings/
+BrandingTextForm.tsx, actions.ts, components/site/SiteFooter.tsx,
+app/(site)/complaints/page.tsx, app/(site)/layout.tsx,
+app/admin/(protected)/settings/page.tsx.
+
+bae426e: supabase/migrations/20260911240000_organization_designation_and_optional_phone.sql
+(new), components/OrganizationLogos.tsx, app/admin/(protected)/settings/
+OrganizationsManager.tsx, actions.ts, components/complaints/ComplaintForm.tsx,
+app/(site)/complaints/actions.ts, app/admin/(protected)/complaints/
+ComplaintList.tsx, ComplaintDetailModal.tsx.
+
+24c6d03: app/globals.css, app/admin/(protected)/layout.tsx,
+components/OrganizationLogos.tsx.
+
+fc1641d: components/site/AnchorAwareLink.tsx (new), components/site/
+SiteHeader.tsx, SiteFooter.tsx, components/CtaButtonGroup.tsx, plus a live
+DB data fix (footer_links/cta_buttons rows, not a migration file).
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- Render: Node web service, free plan, `output: "standalone"` build, manual
+  dashboard configuration (no Blueprint/render.yaml). Requires
+  `HOSTNAME=0.0.0.0` env var override. buildCommand must use `npm install
+  --include=dev` (not plain `npm install`), followed by `cp -r .next/static
+  .next/standalone/.next/static`.
+- Supabase (Postgres + Auth + Storage): NEXT_PUBLIC_SUPABASE_URL,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY (client-safe), SUPABASE_SERVICE_ROLE_KEY
+  (server-only).
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS (as of end of 2026-09-11)
+--------------------------------------------------------------------------------
+- Content gap: no `id="about"` element existed on the homepage at the time
+  fc1641d shipped root-relative anchors — should be re-checked if "/#about"
+  navigation is ever reported as landing nowhere.
+- Organizations section design was still actively churning (see 09-12/09-13
+  dossiers for its continued evolution: flex-wrap row, then a configurable
+  max-per-row grid/flex hybrid, then further mobile-stacked layouts).
+- No outstanding Render/deployment issues beyond the two load-bearing,
+  easy-to-forget settings documented above (HOSTNAME env var,
+  --include=dev buildCommand) if the Render service is ever recreated.
+================================================================================
+END OF DOSSIER
+================================================================================

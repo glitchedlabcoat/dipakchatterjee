@@ -1,0 +1,489 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: RENDER CRASH FIX, ADMIN DASHBOARD UX,
+AND REPOSITORY CLEANUP
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-16
+- File Name: past_sessions_dossiers/2026-09-16-render-crash-admin-ux-and-repo-cleanup.txt
+- Repository: dipakchatterjee (Next.js 16.3.4, App Router, Turbopack,
+  Supabase Postgres+Auth+Storage, Cloudflare R2), deployed on Render
+  (starter/free tier, 512MB RAM, Node web service, `output: "standalone"`).
+- Core Objective (five missions, sequential, in order):
+    (1) Diagnose and fix Render's repeated exit status 134 (SIGABRT) crash.
+    (2) Fix severe admin-dashboard UI latency, rage-click request pile-ups,
+        and refine the session inactivity timer's reset triggers.
+    (3) Repository-wide dead-code sweep, defensive security audit, build/
+        lint verification, and push.
+    (4) Synchronize CHANGELOG.md/CHANGELOG.txt with the day's work and
+        establish a same-day running checkpoint ledger.
+    (5) Reorganize past_sessions_dossiers/ into one clean, deduplicated
+        file per calendar day (this file being the final deliverable of
+        that mission).
+- Key Constraints: Render's 512MB memory ceiling (both the crash's root
+  cause and a standing design constraint for anything touching request
+  memory going forward); proxy.ts's per-request CSP nonce forces the entire
+  site — including /admin/* — to render dynamically, so Next's `loading.tsx`
+  Suspense mechanism cannot mask a shared layout's own data fetch (only a
+  page segment's); Next.js 16's documented `ssr: false` restriction (only
+  legal in Client Components, not Server Components) shaped how dnd-kit-
+  heavy admin components were code-split; commits/pushes only on explicit
+  user instruction, honored throughout except where the user explicitly
+  authorized a combined commit+push in the same message as a later mission.
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+--- MISSION 1: Render exit-134 (SIGABRT) crash ---------------------------------
+
+[Step 1.1 — Diagnosis]
+  * Event/Issue: Render production was crashing repeatedly with exit status
+    134. Initial code-level investigation ruled out native-module ABI
+    mismatches (no `sharp`/`canvas`/`prisma` actually used at runtime —
+    `sharp` only appears as an unused optional peer of Next.js, since the
+    app never touches `next/image`, rendering all media as plain `<img>`/
+    `<video>` tags) and ruled out the one in-memory Map (`lib/rate-limit.ts`)
+    as a leak source (already bounded to 5000 tracked keys with LRU-style
+    eviction).
+  * User supplied the actual Render log tail on request. Every crash showed
+    the identical, unambiguous signature:
+      "FATAL ERROR: Ineffective mark-compacts near heap limit Allocation
+      failed - JavaScript heap out of memory"
+    — a genuine V8 heap-OOM abort, not an assertion failure or native
+    crash. Heap usage was consistently ~250MB against a V8-auto-sized
+    ~256-257MB ceiling on every single occurrence, with NO growth trend
+    across restarts (ruling out a classic unbounded leak — this was a
+    working-set-vs-ceiling mismatch, not a leak).
+  * Root Cause: two compounding factors. (a) V8 auto-sized its old-space
+    heap ceiling to ~256MB on this 512MB Render container, leaving almost
+    zero headroom over the app's own normal SSR steady-state footprint.
+    (b) `app/api/admin/upload/route.ts` fully buffered every uploaded file
+    in memory (`request.formData()` + `Buffer.from(await
+    file.arrayBuffer())`, effectively ~2x the file size in transient RSS)
+    with `MAX_VIDEO_BYTES` set to 100MB — a single admin video upload could
+    transiently double-buffer ~200MB directly on top of the ~250MB
+    baseline, explaining crashes that didn't correlate with public traffic
+    volume (the site owner logging in to upload media).
+  * Secondary log findings, NOT the OOM cause, left unfixed and flagged:
+    a recurring `RangeError: Invalid time value at Date1.toISOString`
+    (non-fatal, has a Next.js error digest; root cause not identified —
+    ruled out `lib/post-date.ts`'s `formatPostDate` (uses `toLocaleString`,
+    not `toISOString`) and `app/sitemap.ts` (only ever uses `new Date()`,
+    never a stored value)), and the already-known, already-deprioritized
+    `integration_settings` id-column uuid/text mismatch from a prior
+    session (see 2026-09-15's dossier).
+
+[Step 1.2 — Fix]
+  * `app/api/admin/upload/route.ts`: `MAX_VIDEO_BYTES` reduced 100MB → 25MB
+    — bounds a single request's worst-case memory spike to something the
+    container can safely absorb even without a heap-ceiling change.
+  * `next.config.ts`: `experimental.serverActions.bodySizeLimit` reduced
+    30mb → 1mb — this had been sized for a complaint-form FormData upload
+    path that no longer exists (complaints now upload directly to R2 via
+    presigned URLs, per 2026-09-15's R2 migration); every remaining Server
+    Action in the app only ever sends small JSON payloads.
+  * New `instrumentation.ts` / `instrumentation-node.ts`: periodic
+    `process.memoryUsage()` logging (15-minute interval, Node-runtime-only
+    via a dynamic `import()` so Turbopack's Edge Runtime bundle never has
+    to statically resolve `process.memoryUsage`, which doesn't exist
+    there) plus an `onRequestError` hook logging server-side errors with
+    their digest — so a future incident leaves a diagnosable trace instead
+    of a bare native stack trace.
+  * `.env.example`: documented `NODE_OPTIONS=--max-old-space-size=400` as
+    the actual heap-ceiling raise, explicitly noting it must be set as a
+    Render dashboard Environment variable (Node reads `NODE_OPTIONS` before
+    it even parses `.env.local`) — the one action this session could not
+    perform itself (no Render dashboard access), left for the account
+    owner.
+  * Verified: `tsc --noEmit` clean, production build clean, and a local
+    standalone-server smoke test (`HOSTNAME=0.0.0.0 NODE_OPTIONS=
+    "--max-old-space-size=400" node .next/standalone/server.js`) hitting
+    every key route (homepage, /notable-works, /sitemap.xml, /robots.txt,
+    /complaints) — all 200.
+
+--- MISSION 2: Admin dashboard latency, rage-click pile-ups, inactivity timer -
+
+[Step 2.1 — Root-cause research]
+  * Delegated a read-only research pass covering: navigation mechanism,
+    per-page data-fetching cost, heavy client components, and the
+    inactivity timer's exact event listeners. Findings:
+    - No `useTransition`/pending state anywhere gated actual navigation
+      (only local form-save/delete actions already used it); no
+      `loading.tsx` and no `<Suspense>` boundary existed anywhere under
+      `app/admin`.
+    - `proxy.ts` → `updateSession()`, the layout, and (on Overview/
+      Settings) the page itself each independently called
+      `supabase.auth.getUser()` — up to 3 sequential Supabase Auth round
+      trips before any page-specific data fetch even started, on every
+      single admin navigation.
+    - `/admin/settings` ran an unconditional 9-query `Promise.all` on
+      every load regardless of which of 6 tabs was active — `SettingsTabs`
+      only ever rendered one tab's data.
+    - `/admin/complaints` fanned out a presigned-URL/signed-URL generation
+      call per media item per complaint on every load (later determined,
+      on inspection, to be mostly free local cryptographic work for R2
+      objects — `getSignedUrl` from `@aws-sdk/s3-request-presigner` never
+      makes a network call — with only the shrinking legacy Supabase
+      Storage branch being real network cost; deprioritized as a lower-
+      impact item than initially estimated).
+    - `next/dynamic` was used nowhere in the codebase; 10 files
+      (including most of `/admin/settings`'s tab managers) imported
+      `@dnd-kit` directly at module scope.
+    - `posts`/`features`/`phases` admin lists used unbounded
+      `select('*')` with no `.limit()`.
+    - `SessionTimer.tsx`'s activity-reset listeners were `["pointerdown",
+      "keydown", "scroll", "touchstart"]` — including passive `scroll`,
+      contrary to the desired behavior.
+  * Consulted the current (non-standard, pinned) Next.js docs before
+    building anything: confirmed a load-bearing caveat — "If the layout
+    accesses uncached or runtime data (cookies(), headers(), or uncached
+    fetches), loading.tsx will not show a fallback for it... Navigation
+    blocks until the layout finishes rendering" (without Cache Components,
+    which this app does not use). Since `app/admin/(protected)/layout.tsx`
+    itself does an uncached `auth.getUser()` + profile fetch, a
+    `loading.tsx` alone could never mask that first, unavoidable stretch of
+    every navigation — this directly motivated Step 2.2's client-side
+    pending-state approach as the primary lever, with `loading.tsx` only
+    covering what happens after the layout resolves.
+
+[Step 2.2 — Instant navigation feedback + click-guard]
+  * New `components/admin/AdminNavPendingContext.tsx`: a `useTransition`-
+    backed shared pending state (`isPending`, `navigate(href)` wrapping
+    `router.push` in `startTransition`), covering the FULL navigation
+    window including the layout's own blocking auth fetch (unlike
+    Suspense/loading.tsx, which can't reach that far).
+  * New `components/admin/AdminTopProgressBar.tsx`: a dependency-free CSS
+    top bar shown while `isPending`.
+  * `components/admin/AdminSidebar.tsx`: every nav `<Link>` (top-level nav
+    items and Settings sub-tab links) now intercepts a plain left-click
+    (explicitly passing through modified clicks — ctrl/cmd/shift/alt/
+    middle-click — so "open in new tab" still works natively), routes it
+    through the shared `navigate()`, and disables itself
+    (`pointer-events-none opacity-50` + `aria-disabled`) while a navigation
+    is already in flight — the primary defense against a rage-click
+    stacking concurrent requests, with an `isPending`-gated early return
+    inside the click handler itself as a second line of defense for
+    non-pointer activations (e.g. Enter on a focused link).
+  * New `app/admin/(protected)/loading.tsx`: a shared skeleton, enabling
+    partial route prefetching for every dynamic admin route and masking
+    each destination page's own remaining data-fetch time once the layout
+    itself has resolved.
+
+[Step 2.3 — Reduced/deduplicated data fetching]
+  * New `lib/admin-auth.ts`: `getAuthedUser()` / `getViewerProfile(id)`,
+    both wrapped in React's `cache()` (request-scoped memoization, the
+    standard documented App Router pattern — carries no cross-user
+    leakage risk since Next resets the cache per request). The admin
+    layout, Overview page, and Settings page were all refactored to call
+    these instead of independently querying Supabase Auth/Postgres,
+    collapsing up to 3 sequential round trips per navigation down to 1.
+  * `app/admin/(protected)/settings/page.tsx`: rewritten to fetch
+    `site_settings` unconditionally (cheap, single row, needed by nearly
+    every tab) and every other table ONLY when `activeTab` actually needs
+    it (e.g. `organizations`/`integration_settings` only for the "media"
+    tab, `nav_links`/`header_actions` only for "header"), replacing the
+    prior unconditional 9-query fetch.
+  * `app/admin/(protected)/posts/page.tsx`, `features/page.tsx`: added
+    `.limit(200)` to the previously-unbounded list queries — a safety cap
+    (not real pagination) chosen specifically because it's essentially
+    risk-free at current real row counts while closing the unbounded-
+    growth part of the memory-risk concern this shares with Mission 1.
+
+[Step 2.4 — Bundle weight]
+  * `app/admin/(protected)/settings/page.tsx`: the 6 heaviest `@dnd-kit`-
+    consuming Settings managers (OrganizationsManager, CtaButtonsManager,
+    FooterBlocksManager, SocialLinksManager, HeaderNavigationManager,
+    UsersManager) converted to `next/dynamic(() => import(...))` (without
+    `ssr: false`, since that option is illegal in a Server Component in
+    this Next.js version — confirmed via the docs) — since `SettingsTabs`
+    only ever renders `panels[active]` into the tree, and Next's bundler
+    otherwise has to include every statically-imported Client Component in
+    a route's client chunk regardless of runtime rendering choices, this
+    means the `/admin/settings` route's client bundle now only pays for
+    whichever single tab is actually open.
+
+[Step 2.5 — Inactivity timer refinement]
+  * `components/admin/SessionTimer.tsx`: `ACTIVITY_EVENTS` changed from
+    `["pointerdown", "keydown", "scroll", "touchstart"]` to
+    `["pointerdown", "keydown"]` — `scroll` removed entirely (a session
+    left merely scrolled must still expire on schedule, not be kept alive
+    indefinitely); `touchstart` dropped as redundant, since the unified
+    Pointer Events API already fires `pointerdown` for touch, mouse, and
+    pen alike.
+
+[Step 2.6 — Verification]
+  * `tsc --noEmit` clean, production build clean (no Turbopack warnings —
+    an initial version of `instrumentation.ts` in Mission 1 had triggered
+    an Edge Runtime bundling warning for the same reason `next/dynamic`
+    needed care in Step 2.4; both resolved via the same
+    dynamic-import-to-avoid-static-Edge-bundling technique), and a local
+    standalone-server smoke test confirming every admin route correctly
+    307-redirects to `/admin/login` when unauthenticated (no crashes, no
+    server errors in the log).
+
+--- MISSION 3: Dead-code sweep, security audit, build gate, commit+push -------
+
+[Step 3.1 — Dead-code / dependency audit]
+  * `eslint .` — zero findings.
+  * Checked every `package.json` dependency for actual usage via targeted
+    grep (including checking `@hookform/resolvers`'s subpath import,
+    `@hookform/resolvers/zod`, which an initial exact-match grep missed) —
+    all genuinely used, nothing to remove.
+  * Checked for orphaned top-level and nested `components/` files with zero
+    import references — none found.
+  * Checked `public/` for unreferenced assets — only `favicon.ico`
+    (genuinely referenced by the site's icon convention).
+  * Checked for commented-out code blocks (as opposed to genuine
+    documentation comments) — none found.
+  * Conclusion, reported honestly rather than manufacturing changes: the
+    codebase was already clean going into this mission (consistent with
+    multiple prior sessions' own dedicated ESLint/audit passes — see
+    2026-09-12's dossier for when ESLint was first stood up and fully
+    cleared).
+
+[Step 3.2 — Security review]
+  * The `security-review` skill's automated git-diff capture failed
+    silently in this environment (empty Bash output from its internal
+    bootstrap); the diff was gathered manually instead and the review
+    performed directly against the skill's own stated methodology and
+    exclusion list.
+  * No HIGH or MEDIUM confidence findings. Specifically checked and cleared:
+    the `react cache()` auth/profile dedup pattern (standard, request-
+    scoped App Router idiom, no cross-user leakage risk); all body-size/
+    upload-cap changes (narrow, not widen, accepted input); the per-tab
+    Settings conditional fetch (React Server Components only ever
+    serialize what a Server Component actually renders into its output
+    tree, so an unrendered sibling panel's props — e.g. the Meta App
+    Secret when the "media" tab isn't active — were never sent to the
+    client either before or after this change, confirming this was a
+    pure efficiency win with no prior exposure to fix); `AdminSidebar`'s
+    intercepted-click navigation (hrefs are always drawn from a fixed
+    internal array/enum, never user input, so no open-redirect surface);
+    the `SessionTimer` event-list change (tightens, not weakens, session
+    security); `instrumentation.ts`'s `onRequestError` logging (server-
+    side only, generic error messages, consistent with the pattern already
+    used throughout every existing `page.tsx`).
+
+[Step 3.3 — Commit and push]
+  * Staged all 17 intended files (12 modified, 5 new), explicitly excluding
+    the pre-existing, unrelated untracked `past_sessions_dossiers/`
+    directory from staging.
+  * Single commit `fd2e32f` — "fix(render): resolve OOM crash; perf(admin):
+    instant nav feedback and reduced fetches" — 18 files changed, 526
+    insertions(+), 110 deletions(-). Pushed: `4f12a21..fd2e32f main -> main`.
+
+--- MISSION 4: Changelog synchronization -------------------------------------
+
+[Step 4.1]
+  * Added a `## [v1.14.0] - 2026-09-16` entry to both CHANGELOG.md and
+    CHANGELOG.txt (Keep a Changelog subheadings — Fixed/Added/Changed/
+    Security — matching the format convention established from v1.9.0
+    onward), covering Missions 1–3's work in full, with a "Files Changed"
+    list and a "Today's Checkpoint (2026-09-16)" trailing section for any
+    further same-day work to be appended to rather than fragmenting into a
+    new version entry.
+  * This changelog update was bundled into the SAME commit `fd2e32f` as
+    Missions 1–3's code changes, per the user's own explicit instruction in
+    that turn to push the "final commit" covering the day's audited work.
+  * Established a new standing convention (saved to persistent memory):
+    before adding a new dated changelog entry, check whether the current
+    top entry's date is already today — if so, append to its existing
+    "Today's Checkpoint" section instead of opening a new version header.
+
+--- MISSION 5: Dossier reorganization (this file) ----------------------------
+
+[Step 5.1 — Audit]
+  * Read all 8 pre-existing files under `past_sessions_dossiers/` in full
+    (9,496 lines total): two files dated 2026-09-11, two dated 2026-09-12,
+    three dated 2026-09-13, one dated 2026-09-15. Cross-referenced every
+    file's claimed date range and commit coverage against the repository's
+    actual, authoritative `git log` (68 commits, exact IST timestamps).
+  * Findings: several filenames did not match the calendar date of the
+    commits they actually narrated in first-hand detail (e.g. a file named
+    "2026-09-11-header-dashboard-and-notification-pipeline-overhaul.txt"
+    directly narrated commits all timestamped in the first two hours of
+    2026-09-12). Two commits from the same continuous overnight session
+    (9a449f8/5c1264c/4f12a21, 2026-09-15 23:22 through 2026-09-16 00:08)
+    were kept together under the 2026-09-15 file rather than split at the
+    literal midnight boundary, since fragmenting a ~45-minute tail end of
+    one unbroken session into its own single-commit day file would harm
+    readability without adding value — documented explicitly as a
+    deliberate judgment call, not an oversight. Two commits (a9b7b63,
+    f13b8e3, both 2026-09-15) had NO dedicated first-hand dossier at all —
+    only commit-body-level reconstruction scattered across three other
+    sessions' dossiers, all in close agreement with each other and with
+    CHANGELOG.md.
+  * A significant fraction of each file's content was itself a
+    "RECONSTRUCTED"/"REPO-HISTORY" section re-deriving facts from `git log`
+    and CHANGELOG.md that other sessions' dossiers already covered
+    first-hand in full detail — genuine duplication, not additional
+    information.
+
+[Step 5.2 — Reorganization]
+  * Consolidated the 8 source files into 5 clean, standardized per-day
+    files (one per calendar date the underlying commits actually landed
+    on), each following the same 6-section structure these dossiers have
+    used since inception:
+      - 2026-09-11-nextjs-rewrite-and-render-deploy.txt
+      - 2026-09-12-header-dashboard-auth-and-phases-security.txt
+      - 2026-09-13-mobile-sidebar-egress-caching-and-seo-routes.txt
+      - 2026-09-14-favicon-post-time-and-turbopack-recovery.txt
+      - 2026-09-15-r2-migration-usage-metrics-and-facebook-embed-fixes.txt
+        (kept its existing identity/filename and was EXTENDED in place —
+        via targeted edits, not a full rewrite — to add its two previously
+        undocumented commits, a9b7b63 and f13b8e3, rather than being
+        replaced, since it was already the highest-quality, most detailed
+        source available for the rest of that day)
+  * Deduplication approach: for each calendar day, every genuine root
+    cause, fix, verification step, and "why" design decision from every
+    contributing source file was preserved; redundant "RECONSTRUCTED"
+    git-log-derived filler that added no information beyond what
+    CHANGELOG.md or another session's first-hand account already stated
+    was compressed to a one-line cross-reference instead of repeated
+    verbatim.
+  * Content-parity verification: before deleting any source file, confirmed
+    every distinct commit hash, root cause, and architectural decision it
+    contained was present somewhere in the new consolidated set — cross-
+    checked against the authoritative `git log` commit list (68 commits,
+    c37fdd3 through fd2e32f) to confirm no commit was dropped.
+
+[Step 5.3 — Cleanup]
+  * Deleted the 7 original source files once their content was confirmed
+    fully represented in the new consolidated files (the 8th,
+    2026-09-15's, was extended in place rather than deleted/replaced).
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- Debouncing/click-guarding implemented via `useTransition` + a shared
+  Context, not a simple `disabled` flag on individual buttons: a shared
+  `isPending` lets EVERY nav trigger disable itself the instant ANY one is
+  clicked (not just the one that was clicked), which is what actually
+  prevents a rage-click across different sidebar links from stacking
+  multiple concurrent RSC fetches — a per-button-only guard would still
+  allow clicking a second, different link while the first navigation is in
+  flight.
+- `next/dynamic` without `ssr: false` (not a Client Component wrapper) for
+  code-splitting the Settings managers: this Next.js version rejects
+  `ssr: false` inside a Server Component at build time; the plain
+  `dynamic(() => import(...))` form still code-splits (a separate chunk,
+  lazily requested only when that element is actually rendered into the
+  tree) while remaining legal to call from `settings/page.tsx`, which is
+  itself an async Server Component.
+- Inactivity-timer event filtering (`pointerdown`/`keydown` only): a
+  deliberate, explicit product decision, not just a technical cleanup —
+  passive scrolling must not count as "the admin is actively using this
+  session," so that a tab left open and merely scrolled through still
+  expires on schedule rather than being kept alive indefinitely.
+- Dead-code elimination judged complete after a systematic (lint +
+  targeted grep) pass rather than pursuing an exhaustive manual line-by-
+  line audit indefinitely — this repo's own prior sessions had already
+  done comparable passes (see 2026-09-12's ESLint stand-up), and a second
+  pass finding genuinely nothing is itself a valid, reportable outcome.
+- Dossier consolidation grouped by the CALENDAR DATE the underlying git
+  commits actually landed on (not by which chat session produced the
+  dossier, and not by a session's own self-reported multi-day date range)
+  — since the whole point of this reorganization was to make "what
+  happened on day X" answerable by opening exactly one file, and several
+  source files' own filenames/date claims did not match their content's
+  actual commit dates.
+
+4. COMPLETE REPOSITORY IMPACT (Files Touched)
+--------------------------------------------------------------------------------
+Created:
+  - instrumentation.ts
+  - instrumentation-node.ts
+  - lib/admin-auth.ts
+  - components/admin/AdminNavPendingContext.tsx
+  - components/admin/AdminTopProgressBar.tsx
+  - app/admin/(protected)/loading.tsx
+  - past_sessions_dossiers/2026-09-11-nextjs-rewrite-and-render-deploy.txt
+  - past_sessions_dossiers/2026-09-12-header-dashboard-auth-and-phases-security.txt
+  - past_sessions_dossiers/2026-09-13-mobile-sidebar-egress-caching-and-seo-routes.txt
+  - past_sessions_dossiers/2026-09-14-favicon-post-time-and-turbopack-recovery.txt
+  - past_sessions_dossiers/2026-09-16-render-crash-admin-ux-and-repo-cleanup.txt
+    (this file)
+
+Modified:
+  - app/api/admin/upload/route.ts (MAX_VIDEO_BYTES 100MB → 25MB)
+  - next.config.ts (serverActions.bodySizeLimit 30mb → 1mb)
+  - .env.example (NODE_OPTIONS documentation)
+  - app/admin/(protected)/layout.tsx (auth dedup, AdminNavPendingProvider,
+    AdminTopProgressBar wiring)
+  - app/admin/(protected)/page.tsx (auth dedup)
+  - app/admin/(protected)/settings/page.tsx (auth dedup, per-tab
+    conditional fetch, next/dynamic code-splitting)
+  - app/admin/(protected)/posts/page.tsx (.limit(200))
+  - app/admin/(protected)/features/page.tsx (.limit(200))
+  - components/admin/AdminSidebar.tsx (pending-aware navigation)
+  - components/admin/SessionTimer.tsx (ACTIVITY_EVENTS trimmed)
+  - CHANGELOG.md / CHANGELOG.txt (v1.14.0 entry + Today's Checkpoint)
+
+Deleted (source content fully consolidated into the 5 files above; verified
+against git log before removal):
+  - past_sessions_dossiers/2026-09-11-header-dashboard-and-notification-pipeline-overhaul.txt
+  - past_sessions_dossiers/2026-09-11-render-deployment-feature-rollout-and-facebook-embeds.txt
+  - past_sessions_dossiers/2026-09-12-admin-dashboard-auth-password-management-and-trigger-fixes.txt
+  - past_sessions_dossiers/2026-09-12-phases-and-features-unification-security-audit-and-changelog-sync.txt
+  - past_sessions_dossiers/2026-09-13-admin-dashboard-mobile-sidebar-responsiveness-and-changelog-sync-audit.txt
+  - past_sessions_dossiers/2026-09-13-egress-caching-ci-fix-and-changelog-audit.txt
+  - past_sessions_dossiers/2026-09-13-seo-branding-post-time-and-admin-layout-recovery.txt
+
+Extended in place (not deleted, not replaced):
+  - past_sessions_dossiers/2026-09-15-r2-migration-usage-metrics-and-facebook-embed-fixes.txt
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- Render: still needs `NODE_OPTIONS=--max-old-space-size=400` added as a
+  dashboard Environment variable to actually raise V8's heap ceiling — this
+  is the one item from Mission 1 this session could not perform itself
+  (no Render dashboard access) and remains the account owner's action.
+- No other environment variables added, removed, or modified this session.
+  No live database migrations were applied this session (no schema changes
+  were part of any of today's five missions).
+- GitHub: one push this session (`4f12a21..fd2e32f main -> main`), covering
+  Missions 1–4's combined work.
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS
+--------------------------------------------------------------------------------
+- IMMEDIATE, HIGHEST-PRIORITY: `NODE_OPTIONS=--max-old-space-size=400` still
+  needs to be added as a Render dashboard Environment variable by the
+  account owner. Until that happens, the underlying V8 heap ceiling is
+  unchanged — Mission 1's code-level fixes (smaller upload cap, smaller
+  body-size limit) reduce the PROBABILITY and severity of a future OOM
+  crash but do not by themselves raise the ceiling that caused it. If exit
+  134 recurs after that env var is added, the next lever is upgrading the
+  Render plan (more RAM) — the container may simply be too small regardless
+  of further buffering reductions.
+- Two secondary, non-fatal, unresolved log findings from Mission 1, both
+  explicitly deprioritized (not touched this session, should only be picked
+  up if asked): the recurring `RangeError: Invalid time value` (root cause
+  not yet identified) and the pre-existing `integration_settings`
+  uuid/text id-column mismatch (known since 2026-09-15, blocks saving Meta
+  App ID/Secret via the Settings UI).
+- The `/admin/complaints` N+1 presign fan-out was investigated (Mission 2)
+  and found to be lower-impact than initially estimated (R2 presigning is
+  free local computation; only the shrinking legacy-Supabase-Storage branch
+  costs a real network round trip) — deliberately NOT restructured this
+  session; a genuine fix (lazy-fetch signed URLs only when a complaint's
+  detail modal is opened) remains a viable future improvement if this page
+  is ever reported as slow again.
+- CHANGELOG.md/CHANGELOG.txt's "Today's Checkpoint (2026-09-16)" section is
+  currently empty — any further hotfix, config tweak, or commit made later
+  today should be appended there rather than opening a new version entry
+  (see [[project_changelog_running_checkpoint]] in persistent memory).
+- Working tree state at the end of this session: all five missions' code
+  and documentation changes are committed and pushed (`fd2e32f`); this
+  dossier-reorganization mission's own file changes (the 5 consolidated
+  dossiers, including this one) are NOT yet committed — they were
+  deliberately left for the user to review before staging, consistent with
+  this repository's standing convention that commits happen only on
+  explicit instruction. No other uncommitted application-code changes
+  exist.
+- Immediate starting point for the next session: `git status` will show the
+  past_sessions_dossiers/ directory's net changes (5 new/updated files, 7
+  deletions) as the only pending change; everything else is clean at
+  commit `fd2e32f` on `origin/main`.
+================================================================================
+END OF DOSSIER
+================================================================================

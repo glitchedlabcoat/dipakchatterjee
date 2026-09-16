@@ -1,0 +1,399 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: PHASES/FEATURES UNIFICATION, MOBILE
+SIDEBAR, ARRANGEMENT PAGE, EGRESS CACHING, CI FIX, EGRESS MONITOR, AND SEO
+ROUTES
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-13 (10 commits, IST).
+- Repository: dipakchatterjee (Next.js 16.3.4, Supabase, Tailwind v4).
+- Consolidated from four source dossiers (now superseded/deleted):
+  "phases-and-features-unification-security-audit-and-changelog-sync.txt"
+  (direct, fb35cd8/c159647), "admin-dashboard-mobile-sidebar-responsiveness-
+  and-changelog-sync-audit.txt" (direct, e190680), "egress-caching-ci-fix-
+  and-changelog-audit.txt" (direct, 889408d/0095fa8/20e2214), and
+  "seo-branding-post-time-and-admin-layout-recovery.txt" (direct, b23293b;
+  its f87ce16 commit lands 2026-09-14 and is documented in that day's file).
+  19e39ec ("add homepage section reordering... with dual changelogs" — the
+  commit that introduced CHANGELOG.md/CHANGELOG.txt to the repo) and 0de4cbd
+  (Phases decimal timers/published state) have no surviving direct-session
+  narrative in any source dossier; documented below at the level of detail
+  recoverable from CHANGELOG.md and other sessions' cross-references only.
+- Core Objective: finish unifying Phases into Features as one Section-Type
+  system; make the admin sidebar responsive on mobile; add a dedicated
+  homepage-arrangement page; fix a real Supabase-egress problem by caching
+  at the data-fetch layer (discovering and fixing a CSP/ISR architectural
+  conflict along the way); fix the CI build break that caching introduced;
+  add an Egress & Cache Efficiency Monitor; add dynamic sitemap.xml/robots.txt.
+- Key constraints: proxy.ts's per-request CSP nonce forces the entire site
+  dynamic — the single most-referenced architectural fact of this day (see
+  Section 3); explicit per-task git-safety instructions ("do NOT commit/
+  push" on some turns, "push it" as a separate later instruction on others)
+  honored exactly; changelog entries never self-reference their own
+  commit's hash (established this day, see 5b40b61 below).
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+[fb35cd8 — 01:21:56] Streamline Phases under Features, add admin presence
+and activity logs
+  Two-part request, explicitly staged-only at request time ("DO NOT execute
+  git push or git commit when finished"), committed later this same session
+  once authorized.
+  Part 1 — Phases streamlined from many fields to exactly 4 (title, period,
+  summary [now NOT NULL, the full narrative], photos JSONB), dropping
+  `content` and `is_pinned`; admin management moved under the Features tab
+  (standalone "Phases" nav item removed); rendered publicly as a side-by-side
+  subsection of Features (~40/45% text, ~55/60% photo carousel/lightbox),
+  stacking on mobile. Table confirmed EMPTY in production before this ran
+  (verified live), so no real backfill risk existed.
+  Part 2 — Supabase Realtime Presence (`admin-presence` channel) showing
+  "Active (You)" / "N Admins Online"; new `dashboard_activity_logs` table
+  (RLS: authenticated-admin-only, no public access) with a strict dual-
+  retention AFTER INSERT trigger (delete rows >24h old AND cap total rows at
+  the newest 20) — verified empirically, not just by reading the SQL:
+  inserted 25 synthetic staggered-timestamp rows, confirmed exactly 20
+  survived; inserted one row stamped 30h old, confirmed it was pruned.
+  `logDashboardActivity()` wired into post/phase/settings/user admin
+  mutations (deliberately NOT instrumented for per-item CTA/organization/
+  footer/social-link CRUD — a documented scoping decision). New /admin/logs
+  viewer.
+  Bugs encountered: (a) `tsc --noEmit` reported a stale Next.js type-
+  validator cache reference to the just-deleted `app/(site)/phases/page.tsx`
+  — fixed by `rm -rf .next`. (b) ESLint's `react-hooks/purity` rule flagged
+  `Date.now()` called directly in the /admin/logs Server Component's render
+  body — fixed by relying on `formatRelativeTime()`'s own default parameter
+  instead of a local `now` variable.
+  Migrations: 20260922000000_phases_streamline_schema.sql,
+  20260922010000_dashboard_activity_logs.sql.
+  25 files changed, 898 insertions(+), 392 deletions(-).
+
+[c159647 — 01:57:09] Unify Phases into Features as a Section Type, add
+merged reordering
+  Also explicitly staged-only at request time, committed with fb35cd8's
+  work once authorized.
+  - Removed the hardcoded "Phases" / "A life in chapters..." static header
+    text — each phase now renders as its own entry with no group wrapper.
+  - Section Type dropdown collapsed to exactly two options (Image Gallery,
+    Phases; About/Stats Strip/Custom Section removed from the UI only — a
+    live query confirmed zero production rows used those types, so removal
+    carried zero data risk, but the Postgres `feature_type` ENUM itself was
+    deliberately left with those legacy values intact rather than attempting
+    a risky enum rebuild).
+  - Full cross-table reordering: ONE shared `0..n-1` index written across
+    BOTH `features.display_order` and `phases.sort_order` from a single
+    merged array on every reorder (works because sorting each table
+    independently by its own column and merging by raw numeric value exactly
+    reconstructs the interleaved order — provided both columns are always
+    written from the same shared sequence). Drag-and-drop (dnd-kit) AND
+    Move-Up/Move-Down arrows as a non-drag fallback, both calling one
+    `reorderSections()`.
+  - Global `site_settings.gallery_interval_ms` replaced by per-item
+    `features.slideshow_interval`/`phases.slideshow_interval` (0–10s, 0 =
+    disabled) — the superseded global column deliberately left in place,
+    unused, matching this project's established precedent for retired
+    settings columns.
+  - `/admin/phases` and `/admin/phases/new` kept as thin redirect shims to
+    `/admin/features`/`/admin/features/new` rather than deleted outright, to
+    avoid 404ing a bookmarked URL.
+  - Self-caught bug: an early draft accidentally changed the
+    `public_life_gallery` section's DOM anchor from the static
+    `id="public-life"` to a dynamic `id={feature-${feature.id}}` — grepped
+    and found `SiteHeader.tsx` and two migrations' seed data reference that
+    static id; reverted before it ever reached the user.
+  - Lint bug: `react/no-unescaped-entities` on two literal apostrophes in
+    locked-type hint strings — fixed with `&rsquo;` entities.
+  Migration: 20260923000000_unify_features_phases_slideshow.sql.
+  26 files changed, 705 insertions(+), 737 deletions(-).
+
+[e190680 — 09:42:06] Admin dashboard sidebar responsive with mobile drawer
+navigation
+  Event/Issue: on mobile/narrow viewports the dark left sidebar was a
+  rigidly pinned, always-visible fixed-width column, squishing page content.
+  Root Cause: `app/admin/(protected)/layout.tsx` rendered the sidebar inline
+  with zero responsive classes, no toggle state, no hamburger, no backdrop.
+  Since the layout is an async Server Component (auth/data fetches,
+  redirects), any new interactive drawer state needed its own client
+  boundary rather than being added directly there.
+  Resolution: new `components/admin/MobileSidebarContext.tsx` (React
+  Context: `isOpen`/`open`/`close`/`toggle`, shared between the header's
+  hamburger button and the off-canvas `<aside>` — not adjacent in the JSX
+  tree, so Context avoided either forcing the Server Component to hold state
+  or a harder-to-reason-about global event bus); `SidebarToggleButton.tsx`
+  (hamburger, `md:hidden`); `AdminSidebar.tsx` extracted as its own client
+  component (backdrop `<div>` only mounted when open, off-canvas `<aside>`
+  via CSS `transform` — `-translate-x-full` ↔ `translate-x-0` with
+  `transition-transform duration-300` — chosen over conditional
+  mount/unmount specifically because transform animations are GPU-composited
+  and support a real exit animation, whereas unmounting would just vanish
+  the drawer and lose transient UI state). Every nav `<Link>` closes the
+  drawer on click. 4 files changed, 197 insertions(+), 103 deletions(-).
+
+[19e39ec — 10:54:17] Homepage section reordering between hero and footer,
+dual changelogs
+  (No direct-session narrative survives.) New dedicated `/admin/arrangement`
+  page superseding the old Settings → Homepage Sections tab: locked Header/
+  Hero/Footer cards with reorderable sections between them (drag-and-drop +
+  Move Up/Down), new "Arrangement" sidebar nav item. THIS IS THE COMMIT THAT
+  INTRODUCED CHANGELOG.md AND CHANGELOG.txt TO THE REPOSITORY. No new
+  migration (reused existing `homepage_layout` fields).
+
+[0de4cbd — 11:32:28] Phases decimal timers, published state, layout
+adaptations, read-more expansion
+  (No direct-session narrative survives.) Per CHANGELOG.md [v1.6.0]:
+  converted `features.slideshow_interval`/`posts.slideshow_interval`/
+  `phases.slideshow_interval` from integer to `numeric(4,2)` with
+  `step="0.1"` inputs; added Phases `is_published` toggle (default draft);
+  restored a `summary` vs. `full_content` split for Phases; conditional
+  slideshow-vs-static-grid rendering (`max_display_images`, default 4); new
+  `/phases/[id]` Read More page with a per-photo optional "fact/detail"
+  field. Migration: 20260924000000_phases_and_timer_enhancements.sql. This
+  commit further modified `components/phases/PhaseEntry.tsx` and
+  `app/admin/(protected)/features/SectionList.tsx` (both created the
+  previous evening by c159647), adding `phases.max_display_images` and the
+  publish toggle to both — the previous evening's versions of those two
+  files no longer reflect current on-disk state after this commit.
+
+[5b40b61 — 11:36:39] Drop commit hashes from changelog entries
+  Event: user feedback: "just mention the actual commit pushed in the
+  changelogs. if hash isn't required, then don't add it."
+  Root Cause: a prior changelog workflow used a commit-then-write-hash-then-
+  amend pattern, which always produced a mismatched hash (amending changes
+  the hash again).
+  Resolution: removed "Commit: <hash>" lines from existing entries;
+  committed as a plain (non-amended) commit to avoid recreating the same
+  problem. THIS IS THE ORIGIN OF THE STANDING "CHANGELOG COMMIT HASH"
+  PROJECT-MEMORY RULE: a changelog entry must never self-reference the
+  commit hash of the very commit that introduces it — omit the hash, or
+  cite a prior, already-immutable commit only.
+
+[889408d — 14:13:54] Egress-reduction data-layer caching on public pages
+  Event/Issue: task asked for `export const revalidate = 60` on public
+  pages for page-level ISR. `next build`'s route table showed the homepage
+  stayed `f (Dynamic)`, never became static — the export was a silent no-op.
+  Root Cause: proxy.ts's per-request CSP nonce (`script-src 'nonce-...'
+  'strict-dynamic'`) requires dynamic rendering site-wide per Next's own
+  docs, and every route was already forced dynamic via `cookies()` inside
+  the cookie-reading Supabase client. THIS IS THE ORIGIN OF THE STANDING
+  "CSP NONCE BLOCKS ISR" PROJECT-MEMORY RULE.
+  Decision point: posed an explicit choice — (A) cache at the data layer,
+  keep strict CSP, vs. (B) relax CSP to enable real page-level ISR. User
+  chose (A).
+  Resolution: new cookie-free `utils/supabase/public.ts` (`createPublicClient()`
+  wrapping `@supabase/supabase-js` directly — safe to call inside
+  `unstable_cache`, unlike the cookie-reading `@supabase/ssr` client, which
+  trips a Dynamic API and breaks caching); new `lib/cache.ts`
+  (`PUBLIC_CACHE_TAG = "public-content"`, `revalidatePublicPages()` calling
+  `revalidateTag(tag, {expire: 0})` — `{expire: 0}` chosen over Next 16's
+  `"max"` profile specifically because `"max"` serves stale content during
+  background revalidation, contradicting "an admin's save must be reflected
+  on the very next public page load"). Wrapped Supabase reads across
+  app/(site) in `unstable_cache(fn, keyParts, {revalidate: 60, tags:
+  [PUBLIC_CACHE_TAG]})`; wired `revalidatePublicPages()` into ~20 admin
+  mutation call sites that previously called `revalidatePath("/")`.
+  Critical bug caught before shipping: after switching app/(site)/page.tsx
+  off the cookie-reading client, `next build` showed `/` flip to fully
+  Static (`Revalidate: 1m, Expire: 1y`) — an unintended side effect, since
+  no other Dynamic API remained in that route's render path. Verified via
+  `npm run start` + curl (twice), diffing the CSP response header's nonce
+  against the nonce embedded in the cached response HTML's `<script>` tags —
+  they diverged after the first request, which would make a real browser
+  block every nonced script as a CSP violation (broken hydration). Fixed by
+  adding `export const dynamic = "force-dynamic"` to app/(site)/page.tsx.
+  Verified caching itself still worked: a temporary console.log inside the
+  data-fetch function showed 5 requests → 1 actual DB execution.
+  Also bumped Supabase Storage upload `cacheControl` from 1 hour to 30 days
+  across every upload site; added `images.minimumCacheTTL: 86400` to
+  next.config.ts (noted as currently inert since the app renders all media
+  via plain `<img>`, never `next/image`).
+  23 files changed, 449 insertions(+), 170 deletions(-).
+
+[0095fa8 — 14:32:06] Force dynamic rendering on the (site) layout to
+unbreak CI build
+  Event/Issue: commit 889408d failed to build in GitHub Actions CI while
+  succeeding locally — local success was misleading because .env.local
+  supplies Supabase credentials CI does not have.
+  Investigation: `gh run view --log-failed` showed the exact error:
+  "Error occurred prerendering page '/complaints' ... Error: supabaseUrl is
+  required. at utils/supabase/public.ts:25:10, at r.revalidate (app/(site)/
+  layout.tsx:25:22)".
+  Root Cause: before 889408d, every (site) page used the cookie-reading
+  client, and calling `cookies()` during Next's build-time static-
+  eligibility probe throws a special `DynamicServerError` that Next silently
+  catches, marking the route dynamic without treating it as a failure.
+  Switching `app/(site)/layout.tsx`'s `getSiteChrome()` to the cookie-free
+  client removed that recognized bailout signal — so Next's build-time probe
+  FULLY EXECUTED `getSiteChrome()` while checking `/complaints` for static
+  eligibility, and with no `NEXT_PUBLIC_SUPABASE_URL` set as a CI workflow
+  env var, the real client constructor threw a genuine, fatal build error.
+  Resolution: added `export const dynamic = "force-dynamic"` to
+  app/(site)/layout.tsx itself (not just page.tsx, since the layout's fetch
+  runs for every page under that route group). Verified by reproducing true
+  CI conditions locally: `mv .env.local .env.local.bak && rm -rf .next &&
+  npm run build` — FAILED with the exact CI error before the fix, PASSED
+  cleanly after. Post-push CI run confirmed green (`gh run watch`).
+  4 files changed, 72 insertions(+), 17 deletions(-).
+
+[20e2214 — 15:43:36] Egress & Cache Efficiency Monitor, env-aware build
+webhooks
+  - New `cache_metrics` table + `record_cache_event(route, is_hit, bytes)`
+    SECURITY DEFINER RPC (RLS: admin-only SELECT; NO insert/update/delete
+    policy for any role — all writes route exclusively through the
+    function; `grant execute ... to anon, authenticated`, deliberately NOT
+    service_role-only, since the function is called from the public
+    anon-key data-fetch layer on every page render — worst-case abuse is a
+    dashboard-accuracy concern, not a security one).
+  - `createTrackedCache()` in lib/cache.ts: needed to distinguish a genuine
+    cache MISS from a HIT from outside `unstable_cache`, which exposes no
+    such signal natively. Rejected a shared mutable boolean flag (a real
+    race under concurrent requests to the same route) and Node's
+    AsyncLocalStorage (unverified propagation through unstable_cache's
+    internals). Adopted: a monotonic per-route generation counter stamped
+    into the cached value itself — every caller in a coalesced concurrent-
+    miss batch reads the same "before" counter synchronously, so they all
+    correctly classify as "miss" with no possibility of misclassification
+    for a later, independent hit. Applied at 5 call sites (layout chrome,
+    homepage, notable-works, post detail, phase detail).
+  - New `/admin/egress` dashboard: Today/7d/30d range filter, reduction-rate
+    banner, baseline/actual/saved comparison, per-route breakdown table.
+    Deliberately NO `unstable_cache` of its own — every /admin/* route
+    stays strictly real-time (confirmed via a repo-wide grep returning zero
+    matches for cache directives under app/admin).
+  - Unrelated bundled changes: Claude Code Stop-hook Discord message
+    hardened to a strictly static string ("Hey! Claude needs your
+    attention!"); RENDER/CI/GITHUB_ACTIONS-based build-source detection
+    added to both the local notify script and the CI workflow.
+  - Verification: live functional test against the real production
+    Supabase project (curl the homepage twice + notable-works once, then
+    queried `cache_metrics` directly) — results exactly matched the
+    expected request pattern (hits/misses summed correctly per route); RLS
+    verified from both the anon client (empty result) and service-role
+    client (all rows visible). Test rows deleted afterward.
+  Migration: 20260925000000_cache_metrics.sql.
+  15 files changed, 517 insertions(+), 18 deletions(-).
+
+[b23293b — 22:18:50] Dynamic sitemap.xml and robots.txt routes
+  New app/sitemap.ts / app/robots.ts using the App Router metadata route
+  convention. Pre-check per AGENTS.md: read the current Next.js docs for
+  both conventions before writing code — confirmed `import type {
+  MetadataRoute }` (type-only) is required given tsconfig's
+  `isolatedModules: true`, deviating from a literal non-type-only import
+  style. robots.ts disallows `/admin/` and `/admin/*`; sitemap.ts lists two
+  static entries (homepage, /notable-works). Both confirmed statically
+  prerendered (`○`) in the build route table.
+  2 files changed (app/robots.ts, app/sitemap.ts), 37 insertions.
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- Cache at the Supabase data-fetch layer (unstable_cache + cookie-free
+  client), not at the Next.js route/page level: proxy.ts's per-request CSP
+  nonce makes page-level ISR structurally impossible site-wide. Relaxing
+  the CSP to allow real ISR was explicitly offered and explicitly REJECTED
+  by the user. This is the single most-referenced architectural constraint
+  in this project's history from this day forward.
+- `revalidateTag(tag, {expire: 0})` over `"max"`: `"max"` serves stale
+  content while revalidating in the background, contradicting "an admin's
+  save must be reflected on the very next public load."
+- `export const dynamic = "force-dynamic"` placed on the LAYOUT, not just
+  the page: the layout's data fetch runs for every page under that route
+  group, so forcing dynamic only on the homepage left every other (site)
+  page still vulnerable to the same build-time-probe failure mode.
+- `createTrackedCache`'s hit/miss detection uses a monotonic per-route
+  counter stamped into the cached value, chosen specifically because it is
+  provably race-safe under Next's documented request-coalescing behavior
+  for same-key concurrent cache misses, with no assumptions about internal
+  scheduling.
+- ONE shared `0..n-1` reorder index written across BOTH `features.
+  display_order` and `phases.sort_order`, not a new polymorphic "sections"
+  table: works because sorting each table independently and merging by raw
+  numeric value exactly reconstructs interleaved order, provided both are
+  always written from the same shared sequence — chosen over a materially
+  larger schema migration for zero functional gain given neither table
+  holds more than a handful of rows.
+- Global `gallery_interval_ms` → per-item `slideshow_interval`: the new
+  requirement is inherently per-row; the superseded global column was left
+  in place, unused, rather than dropped, matching this project's established
+  precedent for retired settings columns.
+- `MobileSidebarContext` via React Context, not lifted `useState`/prop-
+  drilling or a global event bus: the hamburger trigger and the drawer
+  itself are not adjacent in the JSX tree, and their nearest common ancestor
+  is the async Server Component layout, which cannot hold `useState`.
+- Changelog format: entries from v1.9.0 onward use Keep-a-Changelog
+  subheadings; earlier entries keep their original "Summary of What
+  Changed"/"Files Edited" format rather than being retroactively rewritten
+  — an explicit, deliberate convention stated in both files' own header.
+
+4. COMPLETE REPOSITORY IMPACT (FILES TOUCHED)
+--------------------------------------------------------------------------------
+fb35cd8 (25 files): app/admin/(protected)/phases/{actions.ts, PhaseForm.tsx,
+PhaseList.tsx, page.tsx}, app/admin/(protected)/features/page.tsx,
+app/admin/(protected)/layout.tsx (nav changes), components/admin/
+AdminPresence.tsx (new), lib/activity-log.ts (new), lib/relative-time.ts
+(new), app/admin/(protected)/logs/page.tsx (new),
+components/phases/PhaseGallery.tsx (new), PhasesSection.tsx (new, later
+deleted), supabase/migrations/20260922000000_phases_streamline_schema.sql
+(new), 20260922010000_dashboard_activity_logs.sql (new), plus every
+mutation call site wired to logDashboardActivity.
+
+c159647 (26 files): app/admin/(protected)/features/{actions.ts,
+SectionList.tsx (new), new/NewSectionForm.tsx (new), new/page.tsx, page.tsx},
+FeatureForm.tsx, app/admin/(protected)/phases/{PhaseForm.tsx, actions.ts,
+page.tsx (→redirect), new/page.tsx (→redirect), [id]/page.tsx},
+app/(site)/page.tsx, components/PublicLifeGallery.tsx,
+components/features/FeatureSection.tsx, components/phases/PhaseEntry.tsx
+(new), components/admin/GalleryIntervalControl.tsx (deleted),
+app/admin/(protected)/settings/HomepageLayoutManager.tsx, page.tsx,
+lib/homepage-layout.ts,
+supabase/migrations/20260923000000_unify_features_phases_slideshow.sql (new).
+
+e190680 (4 files): app/admin/(protected)/layout.tsx, components/admin/
+AdminSidebar.tsx (new), MobileSidebarContext.tsx (new),
+SidebarToggleButton.tsx (new).
+
+889408d (23 files, 2 new): lib/cache.ts (new), utils/supabase/public.ts
+(new), app/(site)/{layout.tsx, page.tsx, notable-works/page.tsx,
+posts/[id]/page.tsx, phases/[id]/page.tsx}, ~13 admin mutation action files
+(revalidatePublicPages wiring), ~5 storage upload components (cacheControl
+bump), next.config.ts, CHANGELOG.md, CHANGELOG.txt.
+
+0095fa8 (4 files): app/(site)/layout.tsx, page.tsx, CHANGELOG.md,
+CHANGELOG.txt.
+
+20e2214 (15 files, 2 new): supabase/migrations/20260925000000_cache_metrics.sql
+(new), app/admin/(protected)/egress/page.tsx (new, later superseded by a
+redirect stub — see 2026-09-15's dossier), app/(site)/{layout.tsx,
+notable-works/page.tsx, page.tsx, phases/[id]/page.tsx, posts/[id]/page.tsx},
+components/admin/AdminSidebar.tsx (Gauge nav item), lib/cache.ts,
+scripts/notify-discord.js, .github/workflows/discord-notify.yml,
+types/database.types.ts, domain.ts, .claude/settings.local.json
+(gitignored, Stop-hook message — not part of the commit).
+
+b23293b (2 files): app/robots.ts (new), app/sitemap.ts (new).
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- No new environment variables added this day. Every Supabase access
+  continued to use the project's existing client-safe/server-only key split.
+- GitHub Actions: `gh run` used repeatedly to verify CI status
+  post-push (0095fa8, 20e2214 both confirmed green).
+- Multi-session concurrency first became directly evidence-backed this day:
+  commit 9a449f8 (landing 2026-09-15 night) was later confirmed, via git
+  author identity, to have been made under a DIFFERENT git identity than
+  this day's own commits — direct proof multiple concurrent Claude Code
+  sessions were operating on this repository across this whole week.
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS (as of end of 2026-09-13)
+--------------------------------------------------------------------------------
+- `app/admin/(protected)/egress/page.tsx` (20e2214) would be superseded on
+  2026-09-15 by a redirect to a broader `/admin/usage` dashboard — the
+  underlying `cache_metrics` table and `createTrackedCache()` instrumentation
+  remained in continuous use.
+- The changelog-hash-omission rule (5b40b61) and the CSP-nonce-blocks-ISR
+  finding (889408d) both became standing, durable project conventions
+  referenced repeatedly in every subsequent day's work.
+- No outstanding uncommitted work from this day's own scope; all listed
+  commits confirmed pushed and (where checked) CI-green.
+================================================================================
+END OF DOSSIER
+================================================================================
