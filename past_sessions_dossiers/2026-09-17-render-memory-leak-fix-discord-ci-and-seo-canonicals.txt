@@ -1,0 +1,599 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: SEO CANONICALS, DISCORD CI HARDENING,
+CHANGELOG DASHBOARD UX POLISH, AND THE RENDER MEMORY-LEAK ROOT CAUSE FIX
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-17
+- File Name: past_sessions_dossiers/2026-09-17-render-memory-leak-fix-discord-ci-and-seo-canonicals.txt
+- Companion file: this SAME calendar day already has an earlier, separately
+  named dossier — past_sessions_dossiers/2026-09-17-render-heap-hardening-
+  and-changelog-dashboard.txt — covering the day's first mission (Render
+  cache/query hardening + the original Changelogs dashboard build) plus
+  several of this session's own commits, which were backfilled into it
+  before this file was requested. This file is a standalone, complete,
+  strictly-this-conversation account per the user's explicit "End of Day"
+  template request; where the two overlap, treat this file as the more
+  complete and more recently written account of the same events.
+- Repository: dipakchatterjee (Next.js 16.3.4, App Router, Turbopack,
+  Supabase Postgres/Auth/Storage, Cloudflare R2), deployed on Render
+  (512MB RAM, Node web service, `output: "standalone"`).
+- Core Objective: a long sequence of user-driven missions and reactive
+  fixes across one continuous session — (1) enforce canonical
+  metadataBase/URL consistency for SEO, then push; (2) diagnose and fix
+  a Render BUILD-time heap OOM from a pasted deploy-failure log; (3)
+  configure CI-only, rate-limit-tolerant Discord push notifications and
+  implement full per-page self-canonicals, then a zero-warning polish
+  pass; (4) a quality-of-life formatting fix for the admin Changelogs
+  dashboard's Simple view; (5) a "make it nicer" visual redesign of the
+  Changelogs dashboard's Advanced view, moving from one flat "files
+  changed" list to per-task file attribution; (6) diagnose and fix
+  persistently-failing Discord CI notifications (two distinct root
+  causes found in sequence: a dead webhook URL, then a Discord embed
+  field length limit); (7) record a "Pending Agendas / Future Roadmap"
+  section in the day's dossier; (8) diagnose and fix a RECURRING Render
+  runtime OOM from a second pasted crash log — this one revealing, for
+  the first time with enough evidence, that the crash was a genuine
+  memory leak in Supabase client construction, not the heap-ceiling
+  mismatch every earlier session (including this one, earlier today)
+  had concluded.
+- Key Constraints: 512MB Render container; `output: "standalone"` build
+  with a Render-dashboard-configured Build/Start Command outside this
+  repo's control; AGENTS.md's standing rule to consult
+  `node_modules/next/dist/docs/` before writing code (this is a pinned,
+  non-standard Next.js version); Windows local dev environment (`cmd.exe`
+  compatibility mattered for the earlier `cross-env` build fix); no
+  Render dashboard access from this environment; commits/pushes only on
+  explicit user instruction, given repeatedly and explicitly throughout
+  this session for nearly every change; never write a live secret value
+  into a committed file (the user pasted a real Discord webhook URL into
+  chat this session — it was used directly via shell commands to update
+  a GitHub Actions secret, but is deliberately NOT reproduced verbatim
+  anywhere in this dossier or any other committed file).
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+[Step 1 — SEO: canonical metadataBase/URL consistency]
+  * Event: Google Search Console was reporting root-domain variants
+    (`http://`, `www.`) under "Page with redirect."
+  * Root Cause: `app/layout.tsx` had no `metadataBase`, and
+    `app/(site)/layout.tsx`, `app/sitemap.ts`, `app/robots.ts` each
+    hardcoded their own separate copy of `https://janatardipak.com`
+    rather than sharing one source of truth.
+  * Resolution: new `lib/site-url.ts` exporting `SITE_URL`; root
+    `app/layout.tsx` gained `metadataBase: new URL(SITE_URL)` plus (at
+    this point in the session) a blanket `alternates: { canonical: "/"
+    }`; the three other files switched to importing `SITE_URL` instead
+    of their own hardcoded strings.
+  * Associated Commit Hash: f051285 (landed before this conversation's
+    visible window resumed, confirmed via `git log`; the user then said
+    "Push it to main for me... I'll ask for them later but not now" as
+    the instruction to push this and defer further asks).
+
+[Step 2 — Render BUILD-time heap OOM (distinct from the earlier RUNTIME OOM)]
+  * Event: user pasted a Render deploy-failure log showing a V8 heap OOM
+    during `next build`'s TypeScript-check phase: `Mark-Compact (reduce)
+    399.0 (404.1) -> 397.3 (400.6) MB ... FATAL ERROR: Ineffective
+    mark-compacts near heap limit Allocation failed - JavaScript heap
+    out of memory`.
+  * Root Cause: `NODE_OPTIONS=--max-old-space-size=400` — the Render
+    dashboard Environment Variable added in an earlier session
+    specifically to fix the RUNTIME OOM — applies to every Node process
+    in that Render environment, including the build step's own
+    `next build` invocation, which never needed that low a ceiling and
+    was starved of headroom during typecheck. Reproduced locally
+    bit-for-bit: `NODE_OPTIONS=--max-old-space-size=400 npx next build`
+    crashed with the identical signature.
+  * Resolution: `package.json`'s `"build"` script changed from
+    `"next build"` to `"cross-env NODE_OPTIONS= next build"` — clears
+    the inherited env var for just that one script's process tree,
+    leaving `"start": "next start"` (and the runtime ceiling) untouched.
+    `cross-env` chosen over a bare `NODE_OPTIONS= next build` shell
+    prefix specifically because the bare syntax fails on Windows
+    `cmd.exe` (this developer's local environment). Re-verified the fix
+    survives an identical forced 400MB ceiling.
+  * Associated Commit Hash: e535a40.
+
+[Step 3 — "Anything left to do" review]
+  * Event: user asked for a comprehensive list of everything still
+    outstanding from past sessions. Answered directly (no code change):
+    corrected an earlier-session claim about the Discord webhook being
+    "set but wrong" (evidence at the time — one success, two exit-22
+    failures on the same secret — pointed to rate limiting, not a dead
+    URL; this diagnosis was itself later proven wrong in Step 6 below),
+    upgraded `NODE_OPTIONS` from "unverified" to "confirmed set" (Step
+    2's crash log is itself proof it's active), and flagged the missing
+    `public/` copy in Render's Build Command as a new, still-open item.
+  * Root Cause: N/A (informational).
+  * Resolution: N/A (informational; no files touched).
+  * Associated Commit Hash: none.
+
+[Step 4 — Mission: CI-only Discord notifications, full per-page
+  self-canonicals, zero-warning polish]
+  * Event: four-part mission — (a) make the Discord CI webhook tolerate
+    rate limits; (b) enforce Discord notifications as CI-only, removing
+    any local-push path; (c) implement full per-page self-canonicals
+    (the blanket root canonical from Step 1 was wrong for every route
+    but the homepage); (d) a zero-error/zero-warning polish pass.
+  * Root Cause (for 4c specifically): Next's metadata merging means a
+    child route without its own `alternates.canonical` inherits the
+    parent's — so every post, phase, and static page was wrongly
+    self-canonicalizing to `/`.
+  * Resolution:
+      - `.github/workflows/discord-notify.yml`: `curl` gained `--retry 3
+        --retry-delay 5 --retry-all-errors` (later shown in Step 6 to be
+        real but insufficient protection — it addressed a different
+        failure mode than the one actually occurring).
+      - Deleted `scripts/notify-discord.js`; removed `package.json`'s
+        `"notify:discord"`/`"deploy:push"` scripts; replaced
+        `.env.example`'s `DISCORD_WEBHOOK_URL` entry with a note that
+        Discord dispatch is now CI-only via the `DISCORD_WEBHOOK` GitHub
+        secret.
+      - `app/layout.tsx`: removed the blanket `alternates.canonical`,
+        kept `metadataBase`. `app/(site)/page.tsx` gained its own
+        `export const metadata = { alternates: { canonical: "/" } }`.
+        `app/(site)/posts/[id]/page.tsx`'s existing `generateMetadata`
+        gained `alternates.canonical`. `app/(site)/phases/[id]/page.tsx`
+        gained a brand-new `generateMetadata` (it had none before) with
+        both a title (from the fetched phase) and canonical.
+        `app/(site)/notable-works/page.tsx` and
+        `app/(site)/complaints/page.tsx` (the latter also newly typed as
+        `Metadata`) had `alternates.canonical` added to their existing
+        static exports. `/notable-works?page=N` deliberately still
+        canonicalizes to bare `/notable-works`, not a per-page-number
+        URL.
+      - `npm run lint` / `npm run build`: both clean, 0
+        errors/warnings.
+      - `CHANGELOG.md`/`CHANGELOG.txt`: backfilled Steps 1 and 2 above
+        (which had NOT been changelogged when they landed) plus this
+        step's own work, all as additional bullets under the existing
+        "Today's Checkpoint (2026-09-17)" section (same-day convention:
+        extend, don't open a new version header).
+  * Associated Commit Hash: d905345.
+
+[Step 5 — Changelog dashboard: Simple-view formatting fix]
+  * Event: user reported the admin Changelogs dashboard's Simple view
+    rendered multiple distinct updates as one dense run-on paragraph
+    (visible in the v1.15.0 entry: "Several things today. First, ...
+    Second, ... Third, ...").
+  * Root Cause: `lib/changelog-data.ts`'s `ChangelogEntry.simple.summary`
+    field was typed as a single `string`, so any entry with multiple
+    points had no way to express them as separate items — the renderer
+    dumped the whole string into one `<p>`.
+  * Resolution: `simple.summary` retyped as `string | string[]`; a
+    string renders as one paragraph (unchanged for every entry but
+    v1.15.0), an array renders each item as its own spaced `<p>`.
+    v1.15.0's summary rewritten from one run-on paragraph into 4
+    separate array items (ordinal words like "First"/"Second" dropped,
+    since visual separation now does that job).
+    `components/admin/ChangelogBrowser.tsx` updated to branch on
+    `Array.isArray(...)`.
+  * Associated Commit Hash: 0a6c83c.
+
+[Step 6a — Informational Q&A: how the Changelogs feature works / where
+  is the data stored]
+  * Event: user asked (a) how the dual-mode Simple/Advanced Changelogs
+    feature is architected and maintained, then (b) whether
+    `lib/changelog-data.ts` is a database entry, and if so where
+    (Supabase vs. Cloudflare R2) and what the egress/cost tradeoffs of
+    each would be.
+  * Root Cause: N/A (informational; corrected a user misconception —
+    the data source is neither Supabase nor R2, it's a plain TypeScript
+    module compiled directly into the Next.js server bundle, with zero
+    runtime storage/fetch/egress cost of any kind).
+  * Resolution: N/A — no files touched, answered directly with specific
+    references to `lib/changelog-data.ts`,
+    `app/admin/(protected)/changelogs/page.tsx`, and
+    `components/admin/ChangelogBrowser.tsx`.
+  * Associated Commit Hash: none.
+
+[Step 6b — Changelog dashboard: Advanced-view redesign + per-task file
+  attribution]
+  * Event: user asked for the dashboard to look visually "nicer" (their
+    own words: "sorry i don't have a proper prompt for this") and,
+    functionally, for the Advanced view to show each task's specific
+    file changes NEXT TO that task instead of one flat "Files changed"
+    list at the bottom of the entry.
+  * Root Cause: `ChangelogEntry.advanced` had one top-level
+    `filesChanged: string[]` covering the whole version, with no
+    per-task association at all.
+  * Resolution:
+      - `lib/changelog-data.ts`: `advanced.changes[]` items gained an
+        optional `files?: string[]` field; the top-level `filesChanged`
+        field was removed entirely. Every change across ALL 21 existing
+        entries (v0.1.0 through v1.15.0) was individually re-mapped from
+        its old flat `filesChanged` list onto the specific task(s) it
+        actually belonged to (done by hand, cross-referencing each
+        change's own description against the old flat list).
+      - `components/admin/ChangelogBrowser.tsx`: full visual pass —
+        change-type pills now pair a lucide-react icon (PlusCircle/
+        RefreshCw/Wrench/ShieldCheck) with the label; the entry header
+        shows the version as a filled navy badge; the left-rail
+        date/version nav gained a left accent bar on the active version
+        and a small count badge per date group with multiple versions;
+        the root-cause block became a highlighted callout (border-l-4,
+        tinted background) instead of a plain paragraph; "How to use
+        it" tutorial steps switched from default browser list markers to
+        numbered circle badges; every card gained `rounded-2xl` +
+        `shadow-sm` for a softer look; each Advanced-view change is now
+        its own bordered card with its `files` badges (small monospace
+        pills) rendered directly beneath that card's description.
+      - Verification: `npm run lint`/`npm run build` both clean.
+        `/admin/changelogs` is auth-gated (307 redirect to login when
+        probed unauthenticated via `curl`), so full visual confirmation
+        in a browser was explicitly left to the user rather than
+        claimed as done.
+  * Associated Commit Hash: 9391550.
+  * Mid-step aside: user asked "are you actively building a dossier as
+    the day passes?" — answered honestly: no, dossier writing happens in
+    batches at natural mission-end points, not continuously in real
+    time.
+
+[Step 7 — "push the code for me please" (no-op check)]
+  * Event: user asked for a push with no preceding new changes.
+  * Root Cause: N/A.
+  * Resolution: Verified via `git status`/`git log` that the working
+    tree was already clean and `origin/main` already matched local
+    `HEAD` (commit 9391550) — nothing to push, confirmed rather than
+    silently no-op'd.
+  * Associated Commit Hash: none (9391550 was already current).
+
+[Step 8 — Discord CI notifications: root-cause misdiagnosis, correction,
+  and the real fix]
+  * Event 8a: user reported ongoing Discord CI failures were
+    "pissing me off" and asked for troubleshooting INSTRUCTIONS ONLY, no
+    file changes. Given a 5-step manual checklist (verify the webhook
+    still exists in Discord, confirm the GitHub secret matches, test the
+    raw webhook URL directly outside CI, read the actual failing step's
+    raw output, consider Discord rate limits).
+  * Event 8b: user pasted a GitHub Actions annotation screenshot showing
+    the OLD webhook still failing (`Process completed with exit code
+    22`), reported they had just replaced the Discord webhook with a
+    freshly generated one, and pasted that new webhook's full URL in
+    chat, asking to fix it.
+  * Root Cause (first hypothesis, later disproven): the pattern of one
+    success + two exit-22 failures on the OLD webhook had earlier been
+    diagnosed as Discord-side rate limiting. Updating the GitHub secret
+    to the new URL (via `gh secret set DISCORD_WEBHOOK`, piped through
+    stdin, never placed in a command-line argument or committed file)
+    and re-running the previously-failed workflow run (`gh run rerun`)
+    still failed with the SAME exit code 22 — proving rate limiting was
+    never the real cause. A direct manual `curl` POST straight to the
+    new webhook URL (outside CI entirely) returned HTTP 204 — proof the
+    webhook itself was completely healthy.
+  * Root Cause (actual, confirmed): Discord hard-rejects any embed field
+    value over 1024 characters (returns 400, which `curl -f` then
+    surfaces as exit 22). `.github/workflows/discord-notify.yml`'s `jq`-
+    built payload put the ENTIRE commit message into one embed field
+    ("Full message") with zero truncation. The failing run's own commit
+    message measured 1088 characters (`git log -1 --pretty=%B | wc -c`).
+    The old, now-deleted `scripts/notify-discord.js` had a `truncate()`
+    helper for exactly this Discord API constraint; the GitHub Actions
+    workflow never did.
+  * Resolution: `.github/workflows/discord-notify.yml`'s `jq` filter for
+    the "Full message" field changed to
+    `(if ($message | length) > 1024 then ($message[0:1023] + "…") else
+    $message end)`. Verified the jq expression directly (a synthetic
+    1200-character string truncated to exactly 1024 chars ending in the
+    ellipsis) before committing. Re-ran the workflow on the real push:
+    full green run including the Notify Discord step; user confirmed in
+    Discord that the message arrived.
+  * Associated Commit Hash: 6cf1deb (the truncation fix). The GitHub
+    secret update itself was not a commit — a `gh secret set` call
+    against the live repository.
+  * Follow-up: user asked for a dossier note so future sessions don't
+    re-diagnose this as rate limiting. Added directly to the OTHER
+    2026-09-17 dossier file's Section 5 (correcting its "confirmed
+    present and functional... diagnosed as rate limiting" claim) and a
+    new standing-reminder bullet in that file's Section 6.
+  * Associated Commit Hash (dossier correction): a4da7ef.
+
+[Step 9 — Record Pending Agendas / Future Roadmap]
+  * Event: explicit mission to document four specific deferred items in
+    today's dossier: Admin 2FA, Meta Graph API credentials/
+    `integration_settings` schema, background cleanup cron scheduling,
+    Cloudflare live R2 operation counts.
+  * Root Cause: N/A (documentation task).
+  * Resolution: Added a new Section 7 ("Pending Agendas / Future
+    Roadmap") to the OTHER 2026-09-17 dossier file, with the exact
+    current fallback behavior and concrete completion steps for each of
+    the four items, cross-referencing real file paths
+    (`lib/feature-flags.ts`, `lib/otp-login.ts`, `lib/notify/{email,sms}.ts`,
+    `lib/complaints-cleanup.ts`, `lib/cloudflare-analytics.ts`) confirmed
+    to exist via `grep` before being cited.
+  * Associated Commit Hash: 79606d5.
+
+[Step 10 — THE REAL RENDER OOM ROOT CAUSE: Supabase client auto-refresh
+  ticker leak]
+  * Event: user pasted a SECOND, later Render crash log. Its
+    instrumentation.ts-sourced periodic memory readings (15-minute
+    interval) showed `rss` climbing smoothly and monotonically from
+    275.2MB to 482.3MB over roughly 2 hours before the crash
+    (`FATAL ERROR: Ineffective mark-compacts near heap limit Allocation
+    failed - JavaScript heap out of memory`), then — after Render's
+    automatic restart — climbing again from 171.6MB at the SAME rate
+    over the next ~2.5 hours (to 372.1MB) before the log was pasted.
+  * Root Cause: this shape (smooth, monotonic, resets-and-repeats-
+    identically-after-restart) can only be produced by genuine ongoing
+    accumulation, not a one-time heap-ceiling/headroom mismatch (which
+    would plateau near the ceiling, not keep climbing past it) — directly
+    contradicting the "not a leak" conclusion this same session (and the
+    2026-09-16 session before it) had drawn from shorter observation
+    windows. Investigation traced it to `utils/supabase/public.ts`'s
+    `createPublicClient()` and `utils/supabase/admin.ts`'s
+    `createServiceClient()`, both of which called plain
+    `@supabase/supabase-js` `createClient()` without disabling
+    `autoRefreshToken` (public.ts passed no auth options at all;
+    admin.ts passed only `persistSession: false`, which does NOT control
+    this). Read directly from
+    `node_modules/@supabase/auth-js/dist/main/GoTrueClient.js`: its
+    `_handleVisibilityChange()` method starts an un-cleared
+    `setInterval` token-refresh ticker unconditionally in any
+    non-browser environment — its own comment says "in non-browser
+    environments the refresh token ticker runs always." The ticker is
+    `unref()`'d (doesn't block process exit) but is NEVER cleared, so
+    its closure keeps the entire client instance (postgrest/realtime/
+    storage sub-clients, in-memory storage, everything) alive in the
+    heap permanently. `createPublicClient()` is called fresh (not
+    memoized/reused) inside 6 separate `unstable_cache`-wrapped public
+    read functions (`getHomepageSections`, `getSiteSettings`,
+    `getSiteChrome`, `getPublishedPhase`, `getPostsList`, `getPostById`)
+    on every cache miss — so real traffic left a steadily growing
+    population of zombie Supabase clients, each pinned in memory by its
+    own permanent 30-second ticker
+    (`AUTO_REFRESH_TICK_DURATION_MS = 30 * 1000`, confirmed in
+    `node_modules/@supabase/auth-js/dist/main/lib/constants.js`).
+    Separately confirmed `utils/supabase/server.ts` (the per-request
+    cookie-based admin client, via `@supabase/ssr`'s
+    `createServerClient`) was NOT affected — that library already
+    defaults `autoRefreshToken: false` itself (confirmed by reading
+    `node_modules/@supabase/ssr/dist/main/createServerClient.js`),
+    unlike plain `@supabase/supabase-js`.
+  * Resolution: both `utils/supabase/public.ts`'s `createPublicClient()`
+    and `utils/supabase/admin.ts`'s `createServiceClient()` now pass
+    `{ auth: { autoRefreshToken: false, persistSession: false,
+    detectSessionInUrl: false } }`. Zero behavior change to any actual
+    query — neither client ever legitimately has a user session to
+    refresh (public.ts is always anonymous; admin.ts is a service-role
+    key). Verified directly, not just by reading source: a standalone
+    script (`__leak-check3.mjs`, written to the repo root, run, then
+    deleted — never committed) monkey-patched `global.setInterval` to
+    count calls, then constructed 5 clients the OLD way (5 setInterval
+    calls recorded — one permanently leaked ticker per client) followed
+    by 5 more the NEW way (0 additional setInterval calls). This is
+    conclusive proof, not inference.
+    `npm run lint`/`npm run build` both clean afterward.
+  * Associated Commit Hash: 293fd7d (the fix).
+  * Follow-up: added a new Section 8 ("Critical Correction: The Render
+    OOM Was A Real Leak All Along") to the OTHER 2026-09-17 dossier file,
+    explicitly marking Section 1's Context and Mission 1/Step 1.1's
+    findings in that file as superseded on the "no leak exists" point,
+    and recording a standing lesson: a short memory-log observation
+    window cannot distinguish "plateaus near a ceiling" from "climbs
+    slowly and crashes later," and any future crash recurring AFTER a
+    `NODE_OPTIONS` ceiling raise should be treated as evidence FOR a
+    leak, not against one.
+  * Associated Commit Hash (dossier correction): 31cf058.
+
+[Step 11 — This dossier itself]
+  * Event: user said "Let's close shop" and supplied an explicit,
+    reusable "End of Day Prompt" template requesting a new, standalone,
+    strictly-this-session Context Transfer Dossier in a specific
+    6-section format.
+  * Root Cause: N/A.
+  * Resolution: this file.
+  * Associated Commit Hash: pending (to be committed/pushed per the
+    user's standing pattern of pushing dossier updates this session,
+    unless told otherwise).
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- One shared `lib/site-url.ts` constant instead of per-file hardcoded
+  origin strings: guarantees `app/layout.tsx`, `app/(site)/layout.tsx`,
+  `app/sitemap.ts`, and `app/robots.ts` can never drift out of sync on
+  the canonical domain again.
+- `metadataBase` stays on the TRUE root `app/layout.tsx` (not the
+  `(site)` route group's layout) specifically so it applies to `/admin`
+  routes too, per Next's own documented guidance.
+- Per-page canonicals implemented as each route's OWN
+  `alternates.canonical` rather than a blanket root default: Next's
+  metadata merging means an unset child field inherits the parent's, so
+  a root-level canonical is only ever correct for the literal homepage
+  — anything else silently mis-canonicalizes. This was a real mistake
+  made in Step 1 and corrected in Step 4, not a hypothetical risk.
+- `cross-env NODE_OPTIONS= next build` over a bare shell-prefix
+  (`NODE_OPTIONS= next build`): the bare POSIX syntax silently fails (or
+  behaves differently) on Windows `cmd.exe`, this developer's local
+  shell — `cross-env` is the only approach that's correct in both
+  environments without a platform-conditional script.
+- Discord notification architecture: CI-only by design, not just by
+  convention — the local `deploy:push`/`notify:discord` path was deleted
+  entirely rather than merely discouraged, removing the possibility of a
+  local machine independently posting to the same webhook outside of
+  CI's own guardrails (including, now, the message-length truncation).
+- `--retry --retry-all-errors` on the Discord `curl` call was kept even
+  after being shown NOT to be the actual fix for this incident: it's
+  still genuine protection against a real future transient failure
+  (actual rate limiting, a momentary Discord outage), just not what was
+  wrong this time. Two independent protections for two independent
+  failure modes, not one fix mistaken for the other.
+- `ChangelogEntry.advanced.changes[].files?: string[]` replacing the
+  entry-level `filesChanged: string[]`: chosen over keeping both (which
+  risks the two silently drifting apart) — one field, per task, is the
+  single source of truth, and the mapping work (all 21 entries,
+  by hand) was accepted as a one-time cost specifically to avoid that
+  future drift risk.
+- `simple.summary: string | string[]` rather than always requiring an
+  array: preserves every existing entry's simpler single-paragraph form
+  untouched (no forced busywork rewriting 20 other entries) while giving
+  a genuinely multi-point entry (today's v1.15.0) a real way to express
+  that structure. A union type over a breaking type change.
+- Supabase auth-option fix: `autoRefreshToken: false` chosen at the
+  CLIENT-CONSTRUCTION level (both call sites) rather than, say, adding a
+  process-wide client cache/singleton to avoid re-construction — the
+  latter was considered implicitly but rejected as unnecessary: the real
+  defect wasn't "constructing a client is expensive," it was "each
+  client leaves a permanent uncleared timer," and disabling the
+  unnecessary auto-refresh machinery entirely (which these two clients
+  never legitimately need, since neither ever holds a real user session)
+  fixes the actual defect with a two-line, zero-behavior-change diff
+  rather than a larger architectural change (a shared client instance
+  would also have been safe here, but wasn't needed once the root timer
+  issue was addressed directly).
+- Verification methodology: for the Discord embed-length fix, the exact
+  jq truncation expression was tested against a synthetic 1200-character
+  string BEFORE being committed. For the Supabase leak fix, the actual
+  mechanism (setInterval calls) was directly intercepted and counted in
+  an isolated script BEFORE claiming the fix worked, rather than relying
+  on reading the library source alone. Both reflect a session-wide
+  preference for empirical proof over plausible-sounding reasoning,
+  especially after Step 8's rate-limiting misdiagnosis showed how easy
+  it is to be confidently wrong without a direct test.
+
+4. COMPLETE REPOSITORY IMPACT (Files Touched)
+--------------------------------------------------------------------------------
+Created:
+  - lib/site-url.ts
+  - past_sessions_dossiers/2026-09-17-render-memory-leak-fix-discord-ci-and-seo-canonicals.txt
+    (this file)
+
+Modified:
+  - app/layout.tsx (metadataBase added; blanket alternates.canonical
+    added then removed)
+  - app/(site)/layout.tsx (imports SITE_URL)
+  - app/sitemap.ts, app/robots.ts (import SITE_URL instead of local
+    hardcoded copies)
+  - package.json ("build" script -> `cross-env NODE_OPTIONS= next
+    build"`; added `cross-env` devDependency; later removed
+    "notify:discord"/"deploy:push" scripts)
+  - .github/workflows/discord-notify.yml (curl retry/rate-limit flags;
+    later, the actual fix — jq truncation of the "Full message" embed
+    field to 1024 chars)
+  - .env.example (DISCORD_WEBHOOK_URL entry replaced with a CI-only
+    note)
+  - app/(site)/page.tsx (own `alternates.canonical: "/"`)
+  - app/(site)/posts/[id]/page.tsx (generateMetadata now also returns
+    alternates.canonical)
+  - app/(site)/phases/[id]/page.tsx (brand-new generateMetadata — this
+    route had none before)
+  - app/(site)/notable-works/page.tsx, app/(site)/complaints/page.tsx
+    (alternates.canonical added to existing static metadata exports;
+    complaints/page.tsx's metadata export also newly typed as Metadata)
+  - CHANGELOG.md / CHANGELOG.txt (Steps 1, 2, and 4's work backfilled
+    into the existing "Today's Checkpoint (2026-09-17)" section)
+  - lib/changelog-data.ts (simple.summary retyped string|string[];
+    v1.15.0 summary rewritten as an array; advanced.changes[] gained
+    optional files[]; top-level advanced.filesChanged removed;
+    files[] backfilled by hand across all 21 entries, v0.1.0-v1.15.0)
+  - components/admin/ChangelogBrowser.tsx (array-summary rendering;
+    full Advanced-view visual redesign — icons on change-type pills,
+    version badge header, left-rail accent bar + count badges,
+    root-cause callout box, numbered tutorial-step circles, rounded-2xl
+    + shadow-sm cards, per-change file badges replacing the old
+    bottom-of-entry flat file list)
+  - utils/supabase/public.ts (auth: { autoRefreshToken: false,
+    persistSession: false, detectSessionInUrl: false } added, with a
+    long explanatory comment documenting the leak mechanism)
+  - utils/supabase/admin.ts (same three auth options added; previously
+    only had persistSession: false)
+  - past_sessions_dossiers/2026-09-17-render-heap-hardening-and-
+    changelog-dashboard.txt (extended repeatedly this session: Missions
+    B-E backfilled with full narrative detail; Discord webhook
+    "rate limiting" diagnosis corrected to the real 1024-char embed
+    limit cause with a standing reminder; new Section 7 "Pending
+    Agendas / Future Roadmap"; new Section 8 "Critical Correction: The
+    Render OOM Was A Real Leak All Along")
+
+Deleted:
+  - scripts/notify-discord.js
+
+Created-then-deleted within this session (never committed):
+  - __leak-check.mjs, __leak-check2.mjs, __leak-check3.mjs (temporary,
+    repo-root-placed Node scripts used to empirically verify the
+    Supabase auto-refresh ticker leak and its fix; each removed
+    immediately after use, none appear in any commit)
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- GitHub Actions repository secret `DISCORD_WEBHOOK`: updated in place
+  this session via `gh secret set DISCORD_WEBHOOK` (value piped through
+  stdin via `printf`, never placed in a command-line argument or written
+  to any file) after the user regenerated the Discord webhook and pasted
+  its new URL directly in chat. The raw URL is deliberately NOT
+  reproduced in this dossier, any other committed file, or git history —
+  it exists only in this conversation's transcript and in the encrypted
+  GitHub secret store. Confirmed functional via a direct manual `curl`
+  POST (HTTP 204) and via a full passing CI run with the real fix (Step
+  8) applied.
+- Render: `NODE_OPTIONS=--max-old-space-size=400` remains set (confirmed
+  multiple times this session, most concretely by Step 2's build crash
+  log, which could only occur if it were active). Its role is now
+  understood differently than earlier in the day: it's a legitimate
+  runtime headroom safety net, but Step 10 proved it was NEVER the
+  actual fix for the recurring crashes — it only bought time before the
+  real leak (Step 10) hit whatever ceiling was in place. Render's Build
+  Command (revealed via Step 2's pasted log) still does not copy
+  `public/` into `.next/standalone/` — this remains an open,
+  low-priority item requiring a manual Render dashboard edit (no
+  dashboard access from this environment); exact corrected command
+  documented in the companion 2026-09-17 dossier file.
+- Supabase: no schema/migration changes this session. `utils/supabase/
+  public.ts` and `utils/supabase/admin.ts` (Step 10) are pure
+  client-construction-option changes, not RLS or query changes — every
+  query these clients issue behaves identically to before; only the
+  auth subsystem's background behavior changed.
+- Cloudflare R2: not touched this session.
+- No new environment variables were added or required by any change in
+  this session. No `.env.example` variable changed meaning (only the
+  `DISCORD_WEBHOOK_URL` entry's presence/wording changed, per Step 4).
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS
+--------------------------------------------------------------------------------
+- IMMEDIATE, HIGHEST PRIORITY: the Supabase auto-refresh ticker fix
+  (Step 10, commit 293fd7d) is verified correct at the mechanism level
+  (setInterval no longer fires per client) but has NOT yet been observed
+  fixing the actual production memory curve on Render, since that
+  requires hours of real uptime after the fix's deploy. Next session (or
+  later today) should re-check Render's memory logs
+  (`[memory] rss=... heapUsed=...` lines, 15-minute interval, from
+  `instrumentation-node.ts`) and confirm they now stay FLAT over several
+  hours instead of climbing. If they still climb, the leak has a second
+  source not yet found — the Supabase clients were the clearest and
+  most conclusively evidenced candidate, but were not the only
+  server-side object construction reviewed this session (lib/cache.ts,
+  lib/rate-limit.ts, AdminPresence.tsx, and the heartbeat route were
+  also checked and ruled out — see the reasoning in this file's Step 10
+  and don't re-investigate those from scratch).
+- `lib/changelog-data.ts` still has NOT been updated to add a dedicated
+  entry (or extend v1.15.0's existing one) covering this session's own
+  work (Steps 4 through 10) — all of it is documented in
+  CHANGELOG.md/CHANGELOG.txt's "Today's Checkpoint" and in this dossier,
+  but not yet in the admin dashboard's own Changelogs tab content. Not
+  explicitly requested; flagged as a reasonable next step.
+- Render's Build Command still needs a manual dashboard edit to copy
+  `public/` into the standalone output (see the companion dossier file
+  for the exact corrected command) — low priority, currently harmless
+  since the only file in `public/` is served via `app/icon.tsx` instead.
+- The four items from the companion dossier's Section 7 (Admin 2FA, Meta
+  Graph API/`integration_settings` migration, cron scheduling for
+  complaint cleanup, Cloudflare live R2 analytics token) remain
+  deliberately deferred/opt-in — unchanged this session, not re-detailed
+  here to avoid duplicating that file; see that file's Section 7 for the
+  full breakdown.
+- Discord CI notifications should now be considered genuinely fixed
+  (both the webhook identity AND the payload-length defect are
+  resolved) — no further action needed unless a NEW, different failure
+  mode appears; if one does, don't default to "rate limiting" or "dead
+  webhook" without direct evidence, per the standing reminder recorded
+  in the companion dossier's Section 6.
+- Working tree state at the end of this session: every change described
+  above is committed and pushed to `origin/main` (commits f051285
+  [pre-existing before this window], e535a40, d905345, 0a6c83c, 9391550,
+  6cf1deb, a4da7ef, 79606d5, 293fd7d, 31cf058), except this dossier file
+  itself, which is newly written and not yet committed as of the moment
+  this file was saved.
+================================================================================
+END OF DOSSIER
+================================================================================
