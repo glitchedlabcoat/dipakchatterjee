@@ -73,20 +73,26 @@ const getHomepageSections = createTrackedCache(
   async () => {
     const supabase = createPublicClient();
 
+    // .limit(200) on every branch below: a safety cap, not real pagination —
+    // this content is admin-curated and small today, but these queries had
+    // no upper bound at all, unlike the admin posts/features list pages
+    // (see app/admin/(protected)/features/page.tsx for the same reasoning).
     const [{ data: features }, { data: phases }, { data: organizations }, { data: ctaButtons }] = await Promise.all([
       supabase
         .from("features")
         .select("*, feature_media(*)")
         .eq("is_published", true)
         .order("display_order", { ascending: true })
-        .order("display_order", { foreignTable: "feature_media", ascending: true }),
+        .order("display_order", { foreignTable: "feature_media", ascending: true })
+        .limit(200),
       supabase
         .from("phases")
         .select("*")
         .eq("is_published", true)
-        .order("sort_order", { ascending: true }),
-      supabase.from("organizations").select("*").order("display_order", { ascending: true }),
-      supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }),
+        .order("sort_order", { ascending: true })
+        .limit(200),
+      supabase.from("organizations").select("*").order("display_order", { ascending: true }).limit(200),
+      supabase.from("cta_buttons").select("*").order("display_order", { ascending: true }).limit(200),
     ]);
 
     return { features, phases, organizations, ctaButtons };

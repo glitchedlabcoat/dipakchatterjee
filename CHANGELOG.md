@@ -5,6 +5,30 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.15.0] - 2026-09-17
+
+### Changed
+
+- `next.config.ts`: added an explicit `cacheMaxMemorySize: 20MB` (down from Next's implicit 50MB default) for the Data Cache — a hardening measure, not a bug fix; a repo-wide audit found no unbounded cache anywhere (`lib/rate-limit.ts`'s `Map` is capped at 5000 keys with FIFO eviction; every `unstable_cache` call site only stores small Postgres row/aggregate data, never image/video bytes). The exit-134 crash's actual cause remains what the v1.14.0 entry below documents — V8's auto-sized heap ceiling on a 512MB container; `NODE_OPTIONS=--max-old-space-size=400` (Render dashboard env var) confirmed already in place.
+- `app/(site)/page.tsx`: `getHomepageSections()`'s `features`/`phases`/`organizations`/`cta_buttons` queries — previously unpaginated — now carry the same `.limit(200)` safety-cap pattern already used on the admin posts/features list pages.
+
+### Added
+
+- New admin dashboard "Changelogs" tab (`/admin/changelogs`): browse every past release grouped by date then version, with an instant client-side Simple (plain English + how-to-use steps) / Advanced (technical root-cause + files-changed) toggle — genuinely zero re-fetch, since all content is static and sent to the client once. Backed by a new structured data source, `lib/changelog-data.ts`, covering every version from v0.1.0 through this one; this file (not this changelog) is what the dashboard reads, since a plain-English explanation can't be mechanically derived from this file's developer-facing prose.
+
+### Security
+
+- Re-ran the full baseline audit (every `app/api/*/route.ts` and server action's auth/validation, `NEXT_PUBLIC_*` usage, `proxy.ts`'s CSP directives, `.env` hygiene): zero regressions from the 2026-09-15/09-16 sessions.
+
+### Files Changed
+
+- `next.config.ts`
+- `app/(site)/page.tsx`
+- `lib/changelog-data.ts` (new)
+- `app/admin/(protected)/changelogs/page.tsx` (new)
+- `components/admin/ChangelogBrowser.tsx` (new)
+- `components/admin/AdminSidebar.tsx`
+
 ## [v1.14.0] - 2026-09-16
 
 ### Fixed

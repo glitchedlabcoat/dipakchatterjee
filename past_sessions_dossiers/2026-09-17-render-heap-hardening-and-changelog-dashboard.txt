@@ -1,0 +1,338 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: RENDER MEMORY-HARDENING RE-AUDIT,
+ADMIN CHANGELOGS DASHBOARD, SECURITY RE-AUDIT, AND CHANGELOG/DOSSIER SYNC
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-17
+- File Name: past_sessions_dossiers/2026-09-17-render-heap-hardening-and-changelog-dashboard.txt
+- Repository: dipakchatterjee (Next.js 16.3.4, App Router, Turbopack,
+  Supabase Postgres+Auth+Storage, Cloudflare R2), deployed on Render
+  (512MB RAM, Node web service, `output: "standalone"`).
+- Core Objective (four missions, sequential, in order):
+    (1) Investigate a claimed recurrence of Render's exit-134 (SIGABRT/V8
+        heap OOM) crash, specifically testing the user's hypothesis that
+        in-memory caching (kept for low egress) was the accumulating
+        cause, and harden accordingly.
+    (2) Build a new, dual-mode (Simple/Advanced) "Changelogs" tab inside
+        the admin dashboard, grouped by Date then Version.
+    (3) Re-run a security audit baseline (routes/actions/CSP/secrets)
+        before pushing.
+    (4) Synchronize CHANGELOG.md/CHANGELOG.txt, write this dossier, verify
+        the build, commit, and push directly to origin/main (explicit
+        standing instruction for this session).
+- Key Constraints: same memory-budget discipline as prior sessions (512MB
+  Render container, no unbounded server-memory structures); AGENTS.md
+  convention (read `node_modules/next/dist/docs/` before writing code —
+  consulted directly for `cacheMaxMemorySize` and the `output: standalone`
+  `server.js` static-asset-copying behavior); this session's explicit
+  standing instruction to push directly to `origin/main` without a
+  separate confirmation step (unlike most prior sessions, which gated
+  commit/push on an explicit per-turn ask).
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER
+--------------------------------------------------------------------------------
+
+--- MISSION 1: Render OOM re-investigation ------------------------------------
+
+[Step 1.1 — Investigation]
+  * User's framing: aggressive in-memory caching (relied on to keep
+    egress low) was suspected of accumulating and causing the exit-134
+    crash to recur; "clearing cache temporarily resolves it" was offered
+    as supporting evidence.
+  * Three parallel read-only Explore passes covered: every module-level
+    in-memory cache/Map/LRU in the repo, every `unstable_cache` call site
+    and its payload size/boundedness, and any on-disk caching precedent;
+    a security baseline re-audit of every `app/api/*/route.ts` and server
+    action, `NEXT_PUBLIC_*` usage, and `proxy.ts`'s CSP; and the admin
+    dashboard/changelog data structure needed for Mission 2.
+  * Findings: NO unbounded cache exists anywhere. `lib/rate-limit.ts`'s
+    `Map` is capped at 5000 keys (FIFO eviction, unchanged since
+    2026-09-16). Every `unstable_cache` call site (6 total, across
+    `lib/queries/{posts,settings}.ts`, `app/(site)/layout.tsx`,
+    `app/(site)/page.tsx`, `app/(site)/phases/[id]/page.tsx`,
+    `lib/r2-usage.ts`) caches only small Postgres row/aggregate data —
+    never image/video bytes — behind Next's own built-in Data Cache,
+    which is already a size-bounded in-memory LRU defaulting to 50MB
+    (`cacheMaxMemorySize`, confirmed via
+    `node_modules/next/dist/docs/.../cacheMaxMemorySize.md`), not
+    previously overridden in `next.config.ts`. No on-disk cache precedent
+    exists anywhere in server runtime code. Security re-audit found ZERO
+    regressions from the 2026-09-15/09-16 baselines.
+  * Reconciling the user's "clearing cache fixed it" observation: the
+    most plausible explanation, given the evidence, is that a Render
+    restart (which resets V8's heap usage to baseline) was what actually
+    resolved it, not the cache clear itself — consistent with the
+    2026-09-16 session's own finding that heap usage plateaus (~250MB
+    against a ~256MB auto-sized ceiling) rather than growing unbounded.
+  * User, presented with this evidence via AskUserQuestion, instructed:
+    assume `NODE_OPTIONS=--max-old-space-size=400` was already added on
+    Render's dashboard (the 2026-09-16 session's documented, unverifiable
+    action item), still hardware-harden the bounded-cache story in code,
+    and report the exact Render env var name/value at the end regardless.
+
+[Step 1.2 — Fix]
+  * `next.config.ts`: added an explicit `cacheMaxMemorySize: 20 * 1024 *
+    1024` (20MB, down from Next's implicit 50MB default) for the Data
+    Cache — makes the existing bound intentional/tighter rather than
+    relying on an undocumented default, on a container with little
+    headroom to spare.
+  * `app/(site)/page.tsx`: `getHomepageSections()`'s four Supabase
+    queries (`features`, `phases`, `organizations`, `cta_buttons`) had no
+    `.limit()` at all, unlike the admin `posts`/`features` list pages
+    (which got `.limit(200)` in the 2026-09-16 session). Added the same
+    `.limit(200)` safety-cap pattern here.
+  * Considered and explicitly REJECTED: baking `--max-old-space-size=400`
+    into `package.json`'s `start` script pointed at
+    `.next/standalone/server.js` directly. Reason: this repo's
+    `output: "standalone"` build does NOT copy `public/`/`.next/static`
+    into the standalone folder by default (confirmed via
+    `node_modules/next/dist/docs/.../output.md` — that requires a manual
+    `cp -r public .next/standalone/ && cp -r .next/static
+    .next/standalone/.next/` step this repo has no evidence of running).
+    Whether Render's actual configured Start Command is `npm start` or a
+    direct `node .next/standalone/server.js` invocation is unknown from
+    inside this repo; changing `package.json`'s `start` script blindly
+    risked either doing nothing (if Render bypasses npm scripts) or
+    breaking `npm start` locally/on Render (missing static assets if the
+    copy step isn't part of Render's Build Command). Since
+    `NODE_OPTIONS` as a Render dashboard Environment Variable is already
+    invocation-agnostic — Node reads it from the OS environment before
+    executing any script, regardless of how the process was started —
+    it's the strictly safer, equally effective mechanism, so no
+    `package.json`/entrypoint change was made. This was caught and
+    reverted mid-session after briefly making the edit.
+  * No change to `lib/rate-limit.ts` (already correctly bounded) and no
+    new disk-offload/bespoke LRU module built — no evidence exists of a
+    payload large enough to justify that complexity, and building it
+    would have been speculative scope beyond what the investigation
+    found.
+  * Reported to the user at session end (per their explicit request):
+    Render Environment Variable name `NODE_OPTIONS`, value
+    `--max-old-space-size=400`.
+
+--- MISSION 2: Admin Changelogs dashboard tab ---------------------------------
+
+[Step 2.1 — Research]
+  * Read `CHANGELOG.md`/`CHANGELOG.txt` in full (19 version headers,
+    v0.1.0 through v1.14.0, across two eras — Keep-a-Changelog-style from
+    v1.9.0 onward, freeform "Summary of What Changed" before that).
+  * Finding: the "Advanced" (technical) view can be lifted near-verbatim
+    from existing Added/Changed/Fixed/Security/Files-Changed prose for
+    v1.9.0+; earlier entries need condensing from their freeform summary/
+    files-edited sections. The "Simple" (plain-English) view CANNOT be
+    parsed from anything that exists today — no non-technical explanation
+    or "how to use" tutorial content exists anywhere in either file, for
+    any entry, in any era; every bullet is written developer-to-developer
+    with root causes and file paths inlined into the same sentences.
+  * Read the closest existing UI precedent, `/admin/usage`'s Simple/
+    Advanced toggle, in full: it is a server-rendered `?mode=` link that
+    triggers a full navigation and even runs an Advanced-only Supabase
+    query on every switch — explicitly NOT the zero-refetch pattern the
+    new Changelogs tab needed, and not copied.
+  * Confirmed via `AskUserQuestion`: back-fill Simple/Advanced content
+    for the FULL version history (not just the 6 recent Keep-a-Changelog
+    entries), authored fresh per entry rather than parsed.
+  * User raised a follow-up concern ("can't you do something as simple as
+    a toggle... maintain separate files in simple English") mid-plan-
+    review; clarified (without changing the design) that the plan already
+    was a single toggle, with simple/advanced text stored as two fields
+    on one shared entry (in one new file, `lib/changelog-data.ts`) rather
+    than two separately-maintained documents that could drift out of
+    sync — this is what shipped.
+
+[Step 2.2 — Build]
+  * New `lib/changelog-data.ts`: typed `ChangelogEntry[]` (`version`,
+    `date`, `title`, `simple: {summary, tutorial?}`,
+    `advanced: {rootCause?, changes[], filesChanged[]}`), newest-first,
+    covering all 19 pre-existing versions plus this session's own new
+    v1.15.0 entry (20 entries total) — no Supabase table, no migration,
+    keeping this page's egress at zero, consistent with Mission 1's
+    spirit. `advanced.filesChanged` mirrors each version's existing
+    "Files Changed"/"Files Edited" list from CHANGELOG.md; `simple`
+    content freshly authored per entry using the actual historical
+    dossiers as ground truth for what each change did, with a `tutorial`
+    array only where an entry introduced something an admin actually
+    interacts with (e.g. the Search Snippet editor, Meta oEmbed settings,
+    Usage Metrics, the Arrangement page, this Changelogs page itself).
+  * New `app/admin/(protected)/changelogs/page.tsx`: async Server
+    Component, no auth re-check beyond what the shared `(protected)`
+    layout already enforces (same convention as `posts/page.tsx`,
+    `features/page.tsx`), imports `CHANGELOG_ENTRIES` directly (no fetch)
+    and renders `<ChangelogBrowser>`.
+  * New `components/admin/ChangelogBrowser.tsx` (`"use client"`): groups
+    entries by date (Map preserves the array's newest-first insertion
+    order — no separate sort needed), a left-rail accordion of dates with
+    versions nested underneath, and a main panel with the Simple/Advanced
+    toggle. All state (`selectedVersion`, `expandedDate`, `mode`) is
+    local `useState`, with every update wrapped in `useTransition`'s
+    `startTransition` per the explicit ask for smooth switching — this is
+    genuinely zero-refetch (unlike `/admin/usage`) since every entry's
+    both-mode content is already present in the client's initial props.
+    Dates render as full human-readable strings (e.g. "September 17,
+    2026") via `Intl.DateTimeFormat`, parsed from the stored
+    `YYYY-MM-DD` as a local calendar date (not `new Date(dateStr)`
+    directly, which reads it as UTC midnight and can render a day early
+    in negative-UTC timezones) — a fix made after the plan review
+    explicitly asked for full date display.
+  * `components/admin/AdminSidebar.tsx`: added a "Changelogs" nav entry
+    (`ScrollText` icon, alongside "Activity Logs" in
+    `NAV_LINKS_AFTER_SETTINGS`), using the same `renderLink()`/
+    `useAdminNavPending()` wiring every other nav item already gets.
+
+--- MISSION 3: Security re-audit ----------------------------------------------
+
+[Step 3.1]
+  * Baseline re-audit (part of Mission 1's parallel research) found zero
+    regressions: every `route.ts`/server action still correctly gated by
+    `requireAdmin()`/`requireOwner()` or deliberately public + validated +
+    rate-limited; only two `NEXT_PUBLIC_*` vars in use, neither a secret;
+    no client component reads a server secret; CSP directives match the
+    documented post-R2/post-Facebook-embed state with no stale entries;
+    `lib/rate-limit.ts` bounds unchanged; `.env.local` stays gitignored,
+    only `.env.example` tracked.
+  * Post-build differential check: `changelogs/page.tsx` has no auth
+    bypass (relies on the shared layout, same as every sibling page);
+    `lib/changelog-data.ts`/`ChangelogBrowser.tsx` introduce no
+    `NEXT_PUBLIC_*`/secret references (static prose only); the
+    `next.config.ts`/`app/(site)/page.tsx` edits change no CSP, auth, or
+    exposed env var; `eslint .` re-run clean (0 findings, matching
+    baseline) after all changes.
+
+--- MISSION 4: Changelog/dossier sync, build verification, commit, push ------
+
+[Step 4.1]
+  * Added a `## [v1.15.0] - 2026-09-17` entry to both CHANGELOG.md and
+    CHANGELOG.txt (today is a new calendar date vs. v1.14.0's 2026-09-16
+    "Today's Checkpoint," so this opens a fresh version header per the
+    standing convention rather than appending to yesterday's checkpoint),
+    covering Missions 1–3, with a Files Changed list. No self-referenced
+    commit hash, per the standing memory rule.
+  * Wrote this dossier.
+  * `npm run lint`: 0 findings (matching baseline). `npm run build`:
+    caught and fixed one real type error (`ChangelogBrowser.tsx`'s
+    `expandedDate`/`selectedVersion` `useState` was inferred as
+    non-optional `string` from the initial `entries[0]?.date` value,
+    rejecting the toggle handler's `string | undefined` return —
+    fixed by typing both as `useState<string | undefined>(...)`
+    explicitly). Clean build after the fix; `/admin/changelogs` appears
+    correctly in the route table as `ƒ (Dynamic)`, consistent with every
+    other admin route under the CSP-nonce-forced-dynamic layout.
+  * Committed and pushed directly to `origin/main`, per this session's
+    explicit standing instruction (no separate per-push confirmation
+    ask, unlike most prior sessions).
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
+--------------------------------------------------------------------------------
+- Evidence over the user's initial hypothesis, surfaced transparently:
+  rather than building the requested LRU/disk-offload machinery for a
+  cache-leak theory the investigation actively disproved, the findings
+  were reported back via `AskUserQuestion` before any code was written,
+  and the actual fix scope was negotiated down to what the evidence
+  supported (explicit bound tightening + query safety caps), plus
+  reconfirming the real, previously-identified root cause (V8 heap
+  ceiling / `NODE_OPTIONS`).
+- `package.json`'s `start` script left untouched after being briefly
+  edited and reverted: `NODE_OPTIONS` as a Render dashboard Environment
+  Variable is invocation-agnostic (Node reads it from the OS environment
+  before running any script), so it already fully covers this fix
+  regardless of Render's actual configured Start Command — which is not
+  visible from inside this repo. Editing the entrypoint script risked
+  either no effect (if Render bypasses npm scripts entirely, which
+  `output: "standalone"`'s own purpose — avoiding `next start`'s heavier
+  footprint — suggests is likely) or a real regression (this repo has no
+  `public`/`.next/static` copy step into `.next/standalone/`, which
+  Next's own docs say is required for the standalone `server.js` to
+  serve those assets). This is a case where the lower-certainty, higher-
+  blast-radius change was rejected in favor of the mechanism already
+  known to work universally.
+- `lib/changelog-data.ts` as one structured file with `simple`+`advanced`
+  fields per entry, not two separately-maintained documents: raised
+  directly by the user mid-review ("maintain separate files... in simple
+  English") and resolved by clarifying that a single source of truth per
+  entry (two fields, one file) gets the same toggle behavior without the
+  synchronization risk of two independent documents drifting apart.
+- Changelog data kept out of Supabase entirely (a plain TS module, not a
+  new table/migration): this content changes only when a developer ships
+  a new version, is small and finite, and needs zero personalization —
+  a database round trip would add exactly the kind of egress and
+  server-memory cost Mission 1 was hardening against, for a page that
+  doesn't need it.
+- `useTransition` on every changelog browser state update, even though
+  the underlying data is already fully client-side: the user explicitly
+  asked for smooth, non-blocking Date/Version/Mode switching; wrapping in
+  `startTransition` costs nothing today (the dataset is small) and keeps
+  the UI responsive if the version history grows substantially longer.
+- Full human-readable date formatting via `Intl.DateTimeFormat` parsed
+  from a manually-split `YYYY-MM-DD` (not `new Date(dateStr)` directly):
+  avoids the classic UTC-midnight-parses-as-previous-day bug in negative-
+  UTC-offset timezones, raised as an explicit requirement during plan
+  review.
+
+4. COMPLETE REPOSITORY IMPACT (Files Touched)
+--------------------------------------------------------------------------------
+Created:
+  - lib/changelog-data.ts
+  - app/admin/(protected)/changelogs/page.tsx
+  - components/admin/ChangelogBrowser.tsx
+  - past_sessions_dossiers/2026-09-17-render-heap-hardening-and-changelog-dashboard.txt
+    (this file)
+
+Modified:
+  - next.config.ts (added explicit `cacheMaxMemorySize: 20MB`)
+  - app/(site)/page.tsx (`.limit(200)` added to 4 previously-unpaginated
+    homepage section queries)
+  - components/admin/AdminSidebar.tsx (new "Changelogs" nav entry)
+  - CHANGELOG.md / CHANGELOG.txt (v1.15.0 entry)
+
+Considered, edited, then reverted before commit:
+  - package.json (`start` script briefly pointed at
+    `.next/standalone/server.js` with an inline `--max-old-space-size`
+    flag; reverted to `next start` — see Section 3's rationale)
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
+--------------------------------------------------------------------------------
+- Render: user instructed this session to assume
+  `NODE_OPTIONS=--max-old-space-size=400` is already set as a dashboard
+  Environment Variable (per the 2026-09-16 session's unresolved action
+  item). This was NOT independently re-verified (no Render dashboard
+  access from this environment) — reported back explicitly at session
+  end as requested: variable name `NODE_OPTIONS`, value
+  `--max-old-space-size=400`. If it turns out this was never actually
+  added, that remains the single highest-leverage fix for a genuine
+  future exit-134 recurrence, independent of everything else this
+  session changed.
+- No environment variables added, removed, or modified in-repo this
+  session. No database migrations. No new Supabase table (the Changelogs
+  tab deliberately uses a static TS file instead).
+- GitHub: one push this session, directly to `origin/main` per explicit
+  standing instruction.
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS
+--------------------------------------------------------------------------------
+- IMMEDIATE: if exit-134 recurs even with `NODE_OPTIONS` confirmed set
+  correctly on Render, that would contradict this session's (and the
+  2026-09-16 session's) diagnosis of a heap-ceiling/headroom mismatch and
+  point to a genuinely new cause — the next step in that case is pulling
+  the actual current Render crash log tail (as the 2026-09-16 session
+  did) rather than assuming the same root cause still applies.
+- Two secondary, non-fatal, unresolved items carried forward unchanged
+  from the 2026-09-16 dossier (not touched this session, should only be
+  picked up if asked): the recurring `RangeError: Invalid time value`
+  log noise (root cause not yet identified), and the pre-existing
+  `integration_settings` uuid/text id-column mismatch (blocks saving Meta
+  App ID/Secret via the Settings UI).
+- `lib/changelog-data.ts` is now the canonical source for the dashboard's
+  Changelogs tab going forward — any future version bump should add a
+  new entry there (prepended, newest-first) alongside the usual
+  CHANGELOG.md/CHANGELOG.txt update, authoring fresh `simple` content
+  rather than expecting it to be derivable from the technical changelog
+  prose.
+- Working tree state at the end of this session: all of this session's
+  changes (Missions 1–4, including this dossier) are committed and
+  pushed to `origin/main`, per this session's standing instruction to
+  push directly without a separate confirmation step.
+================================================================================
+END OF DOSSIER
+================================================================================

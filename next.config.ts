@@ -46,6 +46,15 @@ const nextConfig = {
   // browser source maps from a production build.
   productionBrowserSourceMaps: false,
 
+  // Next's Data Cache (the in-memory side of unstable_cache — see
+  // lib/cache.ts) defaults to a 50MB in-process LRU. Every entry today is
+  // small Postgres row/aggregate data (verified: no image/video bytes are
+  // ever cached), but on a 512MB container recovering from repeated V8
+  // heap-OOM crashes (exit 134 — see the NODE_OPTIONS note in .env.example),
+  // an explicit, tighter ceiling costs nothing and removes one more
+  // variable from that budget instead of relying on an implicit default.
+  cacheMaxMemorySize: 20 * 1024 * 1024, // 20MB
+
   async headers() {
     return [
       {

@@ -23,6 +23,7 @@ import {
   MessageSquareWarning,
   Rows3,
   Rss,
+  ScrollText,
 } from "lucide-react";
 import SignOutButton from "@/components/admin/SignOutButton";
 import { useMobileSidebar } from "@/components/admin/MobileSidebarContext";
@@ -49,7 +50,10 @@ const NAV_LINKS_BEFORE_SETTINGS = [
   { href: "/admin/usage", label: "Usage Metrics", icon: Activity },
 ];
 
-const NAV_LINKS_AFTER_SETTINGS = [{ href: "/admin/logs", label: "Activity Logs", icon: History }];
+const NAV_LINKS_AFTER_SETTINGS = [
+  { href: "/admin/logs", label: "Activity Logs", icon: History },
+  { href: "/admin/changelogs", label: "Changelogs", icon: ScrollText },
+];
 
 export default function AdminSidebar({
   brandName,
