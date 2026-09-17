@@ -23,10 +23,14 @@ export const metadata: Metadata = {
   // typically set in root app/layout.js to apply ... across all
   // routes" — node_modules/next/dist/docs/.../generate-metadata.md).
   // Strictly the bare HTTPS apex domain: no `www.`, no trailing slash.
+  //
+  // No blanket `alternates.canonical` here on purpose: a root-level
+  // canonical would otherwise apply to every route that doesn't set its
+  // own, which is wrong for anything but the homepage (e.g. a post would
+  // wrongly self-canonicalize to "/"). Each public route sets its own
+  // canonical instead — see app/(site)/page.tsx, posts/[id], phases/[id],
+  // notable-works, and complaints.
   metadataBase: new URL(SITE_URL),
-  alternates: {
-    canonical: "/",
-  },
   title: "Dipak Chatterjee — Social Worker, Educationist & Public Life",
   description:
     "Official portfolio of Dipak Chatterjee — social worker, educationist, and community leader in Chanchal, North Malda.",

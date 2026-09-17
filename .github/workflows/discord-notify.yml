@@ -104,4 +104,9 @@ jobs:
               }]
             }')
 
-          curl -sf -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"
+          # --retry-all-errors also retries on an HTTP-level failure (e.g.
+          # Discord's 429 rate-limit response), not just curl's own
+          # connection-level errors — the default --retry behavior ignores
+          # those. Backs off 3 times, 5s apart, before this step fails.
+          curl -sf --retry 3 --retry-delay 5 --retry-all-errors \
+            -H "Content-Type: application/json" -d "$PAYLOAD" "$DISCORD_WEBHOOK"

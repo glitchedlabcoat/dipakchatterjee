@@ -10,6 +10,7 @@
 // homepage's gallery.
 
 import Link from "next/link";
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft } from "lucide-react";
@@ -30,6 +31,25 @@ const getPublishedPhase = createTrackedCache(
   ["phase"],
   { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
 );
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  // getPublishedPhase isn't React `cache()`-wrapped like getPostById, so
+  // this and PhasePage below each run their own Supabase call — matches
+  // this file's pre-existing pattern (createTrackedCache/unstable_cache
+  // already dedupes the underlying query at the Data Cache layer).
+  const phase = await getPublishedPhase(id);
+  if (!phase) return {};
+
+  return {
+    title: (phase as Phase).title,
+    alternates: { canonical: `/phases/${id}` },
+  };
+}
 
 export default async function PhasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;

@@ -45,7 +45,10 @@ export async function generateMetadata({
   const post = await getPostById(id);
   if (!post) return {};
 
-  return { title: truncateTitle(post.title || "Update") };
+  return {
+    title: truncateTitle(post.title || "Update"),
+    alternates: { canonical: `/posts/${id}` },
+  };
 }
 
 function buttonLabel(link: PostLink) {

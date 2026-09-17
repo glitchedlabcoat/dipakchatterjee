@@ -27,6 +27,7 @@
 // among Organizations/Features/Posts follows the exact order chosen in
 // that unified admin list (see lib/homepage-layout.ts).
 
+import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
 import { PUBLIC_CACHE_TAG, TAG_SECTIONS, createTrackedCache } from "@/lib/cache";
 import { getSiteSettings } from "@/lib/queries/settings";
@@ -51,6 +52,15 @@ import {
 const FALLBACK_HEADLINE = "A life spent teaching, organising, and showing up when it matters.";
 const FALLBACK_BODY =
   "Dipak Chatterjee has spent over two decades as a schoolteacher and headmaster in Chanchal, North Malda, alongside a parallel life of community organising. This is his record of work, and a direct line for anyone who needs help.";
+
+// Title/description/openGraph still come from app/(site)/layout.tsx's
+// generateMetadata (settings-driven) — this only adds the homepage's own
+// canonical, which used to live as a blanket default on the root layout.
+export const metadata: Metadata = {
+  alternates: {
+    canonical: "/",
+  },
+};
 
 // DO NOT REMOVE. This page has no dynamic segment, and app/(site)/layout.tsx
 // now also forces dynamic for the same reason (see the comment there for

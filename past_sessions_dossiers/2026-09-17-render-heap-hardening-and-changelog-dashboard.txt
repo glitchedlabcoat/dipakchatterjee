@@ -22,6 +22,16 @@ ADMIN CHANGELOGS DASHBOARD, SECURITY RE-AUDIT, AND CHANGELOG/DOSSIER SYNC
     (4) Synchronize CHANGELOG.md/CHANGELOG.txt, write this dossier, verify
         the build, commit, and push directly to origin/main (explicit
         standing instruction for this session).
+- NOTE: this was the FIRST of five sequential missions actually completed
+  on 2026-09-17 (this file, per the one-dossier-per-calendar-day
+  convention, was extended below — Section 2 — to cover all of them
+  rather than splitting into separate files). In order: Mission A (this
+  section, Render hardening + Changelogs dashboard, commit f4a10ec),
+  Mission B (RangeError root-cause fix + Meta oEmbed UI removal, commit
+  e1c6f54), Mission C (SEO canonical URL / metadataBase fix, commit
+  f051285), Mission D (Render build-time heap OOM fix, commit e535a40),
+  Mission E (Discord CI-only notifications + rate-limit retry, full
+  per-page self-canonicals, zero-warning polish pass — see Section 2E).
 - Key Constraints: same memory-budget discipline as prior sessions (512MB
   Render container, no unbounded server-memory structures); AGENTS.md
   convention (read `node_modules/next/dist/docs/` before writing code —
@@ -223,6 +233,231 @@ ADMIN CHANGELOGS DASHBOARD, SECURITY RE-AUDIT, AND CHANGELOG/DOSSIER SYNC
     explicit standing instruction (no separate per-push confirmation
     ask, unlike most prior sessions).
 
+--- MISSION B: RangeError root-cause fix + Meta oEmbed UI removal --------------
+(separate user-initiated mission, later the same day; committed as e1c6f54)
+
+[Step B.1 — Investigation]
+  * A subagent traced every `.toISOString()`/`.toLocaleString()`/
+    `Intl.DateTimeFormat` call site in the repo. Root cause of the
+    intermittent `RangeError: Invalid time value` in Render logs:
+    `app/admin/(protected)/posts/actions.ts`'s `createPost`/`updatePost`
+    only truthy-checked the admin's `published_at` form input before
+    calling `new Date(input.published_at).toISOString()` — never
+    validated it actually parsed. A malformed value (devtools-edited
+    field, extension interference) threw uncaught.
+  * Every other call site audited was safe: fed either a bare
+    `new Date()` (always valid) or a Supabase column enforced `NOT NULL`
+    at the schema level.
+
+[Step B.2 — Fix]
+  * New `lib/safe-date.ts`: `safeDate`, `safeToISOString`, and
+    `parseValidDate` (the one actually used) — each checks
+    `Number.isNaN(d.getTime())` before trusting a parsed `Date`.
+  * `posts/actions.ts`: added `toValidPublishedAt()` wrapping
+    `parseValidDate`; both `createPost`/`updatePost` now use it instead
+    of the unguarded inline `new Date(...).toISOString()`.
+  * `PostForm.tsx`: added a matching client-side Zod `.refine()`
+    (`isEmptyOrParseableDate`) so a bad date is caught as a normal form
+    validation error before it ever reaches the server action.
+  * Two additional low-risk hygiene fixes applied opportunistically:
+    `ChangelogBrowser.tsx`'s `formatDate()` gained a
+    `Number.isNaN(date.getTime())` guard (falls back to the raw string
+    instead of throwing on a hypothetical malformed changelog date); and
+    `/admin/usage`'s `istDateString()` was rewritten to build the IST
+    calendar date directly via `Intl.DateTimeFormat("en-CA", {timeZone:
+    "Asia/Kolkata"})` + `Date.UTC(...)`, instead of the previous approach
+    of round-tripping through `new Date(now.toLocaleString("en-US",
+    {timeZone: "Asia/Kolkata"}))` (which re-parses a locale-formatted
+    string — fragile, though not proven to have ever actually failed).
+
+[Step B.3 — Removed non-functional Meta App ID/Secret UI]
+  * Context: `integration_settings`' schema migration was never actually
+    applied to the live database (documented since the 2026-09-15
+    dossier), so every save via this form failed. Rather than leave a
+    permanently-broken admin UI in place, it was deleted outright:
+    `app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx` and
+    `app/admin/(protected)/settings/integration-actions.ts` (both
+    removed); `settings/page.tsx` had its `integration_settings` query
+    branch, `NONE` placeholder, and the form's JSX removed;
+    `lib/settings-nav.ts`'s "media" tab description updated to drop the
+    now-false mention of Meta oEmbed integration; `FacebookEmbed.tsx`'s
+    top-of-file comment updated to stop referencing the deleted form
+    file, pointing instead at the still-standing (unapplied) migration
+    file.
+  * The 3-tier Facebook embed fallback (XFBML -> iframe -> outbound
+    link) never depended on these credentials and is unaffected by their
+    removal.
+  * Per this mission's explicit instructions, the `integration_settings`
+    table/schema itself was left untouched (not dropped, not migrated) —
+    only the broken UI that wrote to it was removed. This was reaffirmed
+    as "do not touch" again in Mission E below.
+
+--- MISSION C: SEO canonical URL / metadataBase fix ----------------------------
+(separate user-initiated mission; committed as f051285)
+
+[Step C.1]
+  * Google Search Console was reporting root-domain variants (`http://`,
+    `www.`) under "Page with redirect" — Next's Metadata API needs
+    `metadataBase` set for relative URLs to resolve against one
+    canonical absolute origin.
+  * New `lib/site-url.ts`: single exported `SITE_URL =
+    "https://janatardipak.com"` constant.
+  * `app/layout.tsx` (the true root layout — `metadataBase` must live
+    here per Next's own docs, not in the `(site)` route group's layout,
+    to apply across both `(site)` and `/admin`): added `metadataBase:
+    new URL(SITE_URL)` and, at the time, a blanket `alternates: {
+    canonical: "/" }` (later corrected — see Mission E, this was wrong
+    for non-homepage routes and was removed/redistributed then).
+  * `app/(site)/layout.tsx`, `app/sitemap.ts`, `app/robots.ts`: each had
+    its own locally-hardcoded `https://janatardipak.com` string, now all
+    import `SITE_URL` from the one shared constant instead.
+
+--- MISSION D: Render build-time heap OOM fix ----------------------------------
+(triggered by a pasted Render deploy-failure log; committed as e535a40)
+
+[Step D.1 — Diagnosis]
+  * User pasted a Render build log showing a V8 heap OOM crash during
+    `next build`'s TypeScript-check phase (`Mark-Compact (reduce) 399.0
+    (404.1) -> 397.3 (400.6) MB ... FATAL ERROR: Ineffective mark-compacts
+    near heap limit`) — a NEW failure mode, distinct from the
+    already-fixed runtime exit-134 crash (Mission A / the 2026-09-16
+    session).
+  * Root cause: `NODE_OPTIONS=--max-old-space-size=400` — the Render
+    dashboard Environment Variable added specifically to fix the
+    *runtime* OOM — applies to every Node process spawned in that Render
+    environment, including the build step's own `next build` invocation,
+    which never needed that low a ceiling and was being starved of
+    headroom during typecheck.
+  * Reproduced locally and bit-for-bit confirmed: `NODE_OPTIONS=--max-
+    old-space-size=400 npx next build` crashed with the identical
+    Mark-Compact/heap-limit signature.
+  * This build log also incidentally CONFIRMED, for the first time with
+    direct evidence, that `NODE_OPTIONS=--max-old-space-size=400` really
+    is set on Render's dashboard (previously only ever an instruction
+    given to the user, never independently verifiable from inside this
+    repo) — the crash literally could not happen otherwise. It also
+    revealed Render's actual configured Build Command for the first
+    time: `npm install --include=dev && npm run build && cp -r
+    .next/static .next/standalone/.next/static` — confirming the
+    standalone-deploy-with-custom-Start/Build-Command scenario Mission
+    A's Step 1.2 had explicitly flagged as an unknown risk, and also
+    revealing this command never copies `public/` into
+    `.next/standalone/` (flagged as a new, still-open action item — see
+    Section 6).
+
+[Step D.2 — Fix]
+  * `package.json`: `"build"` changed from `"next build"` to `"cross-env
+    NODE_OPTIONS= next build"` — clears the inherited env var for just
+    this one script's process tree, leaving the runtime `NODE_OPTIONS`
+    (via `"start": "next start"`, unchanged) fully intact.
+  * Chose `cross-env` (added as a new devDependency,
+    `npm install --save-dev cross-env`) over the equivalent bare-shell
+    prefix `NODE_OPTIONS= next build` specifically because the bare
+    syntax is POSIX-only and fails on Windows `cmd.exe` — this
+    developer's local environment (per `AGENTS.md`'s Windows-Bash-vs-
+    PowerShell distinction and this session's own tool environment).
+  * Re-verified the fix survives the identical forced 400MB ceiling
+    (`cross-env NODE_OPTIONS=--max-old-space-size=400 next build`
+    succeeds where the unguarded script crashed).
+
+--- MISSION E: CI-only Discord notifications, full per-page self-canonicals, ---
+--- zero-warning polish -----------------------------------------------------
+(final mission of the day; user asked for confirmation this was pushed)
+
+[Step E.1 — Discord webhook: rate-limit retry + CI-only enforcement]
+  * `.github/workflows/discord-notify.yml`'s final `curl -sf ...` step
+    (the only thing that actually posts to Discord) had no retry
+    behavior at all — a transient Discord-side HTTP error (e.g. 429 rate
+    limit from several pushes landing close together) failed the whole
+    step outright with curl exit 22. Added `--retry 3 --retry-delay 5
+    --retry-all-errors` (the `--retry-all-errors` flag specifically
+    needed because curl's default `--retry` only retries connection-
+    level failures, not HTTP-level ones like a 429/5xx returned to
+    `-f`).
+  * Investigated why 2 of the day's 3 CI runs had failed with curl exit
+    22 while one (the SEO-fix push, f051285) succeeded, using the same
+    `DISCORD_WEBHOOK` secret every time: an intermittent failure with an
+    unchanged secret rules out a dead/wrong webhook URL (that would fail
+    consistently, every time) and is consistent instead with Discord-side
+    rate limiting from several pushes landing in a short window that day
+    — exactly what the new retry flags now smooth over.
+  * Enforced remote-only notification architecture: deleted
+    `scripts/notify-discord.js` outright, and removed `package.json`'s
+    `"notify:discord"` and `"deploy:push"` scripts (the latter chained
+    `git push origin main && npm run notify:discord`, i.e. a local
+    machine could independently POST to the same Discord webhook outside
+    of CI). `.env.example`'s `DISCORD_WEBHOOK_URL=` entry (a local-only
+    var, distinct from the GitHub Actions secret `DISCORD_WEBHOOK`) was
+    replaced with a comment pointing at the CI secret as the sole
+    mechanism going forward.
+
+[Step E.2 — Full per-page self-canonicals]
+  * Root cause of the gap: Mission C's `app/layout.tsx` set a blanket
+    `alternates: { canonical: "/" }` on the TRUE root layout, so every
+    route without its own `alternates.canonical` — every post, every
+    phase, `/notable-works`, `/complaints` — inherited `/` as its
+    canonical target, which is wrong for anything but the homepage
+    itself (per Next's metadata merging rules: a child segment's
+    explicit field overrides the parent's, but an unset field just
+    inherits it).
+  * `app/layout.tsx`: removed the blanket `alternates.canonical`
+    entirely (kept `metadataBase`), with a comment directing future
+    readers to each route's own canonical instead.
+  * `app/(site)/page.tsx`: added its own `export const metadata: Metadata
+    = { alternates: { canonical: "/" } }` — title/description/openGraph
+    still come from `app/(site)/layout.tsx`'s existing
+    `generateMetadata` (Next merges non-overlapping metadata fields
+    across nested segments, so this doesn't clobber those).
+  * `app/(site)/posts/[id]/page.tsx`: its existing `generateMetadata`
+    (previously only returning `title`) now also returns `alternates: {
+    canonical: `/posts/${id}` }`.
+  * `app/(site)/phases/[id]/page.tsx`: had NO metadata export at all
+    before this — added a new `generateMetadata` (title from the
+    fetched phase's own `title` field, plus `alternates.canonical =
+    /phases/${id}`), calling the same existing `getPublishedPhase`
+    `unstable_cache`-wrapped loader the page component itself already
+    uses.
+  * `app/(site)/notable-works/page.tsx` /
+    `app/(site)/complaints/page.tsx`: both already had a static
+    `export const metadata` object (title, and title+description
+    respectively) — added `alternates: { canonical: "/notable-works" }`
+    / `"/complaints"` to each. (`complaints/page.tsx`'s previously-
+    untyped `metadata` export was also given an explicit `: Metadata`
+    type while touched, matching every sibling page.) Paginated
+    `/notable-works?page=N` deliberately still canonicalizes to the bare
+    `/notable-works` (page 1) rather than a per-page-number canonical —
+    consolidates near-duplicate paginated content onto one canonical
+    target rather than treating each page number as a distinct
+    indexable URL.
+  * `integration_settings` table: explicitly reconfirmed out of scope
+    ("do not touch") per this mission's own instructions — the
+    underlying uuid/text id-column schema mismatch from Mission B's
+    Step B.3 context remains in the database, untouched, and is now
+    unreachable from any UI (nothing references that table anymore).
+
+[Step E.3 — Zero-warning polish + verification]
+  * `npm run lint`: 0 findings (matching every prior baseline this day).
+  * `npm run build`: clean Turbopack production build, 0 TypeScript
+    errors, 0 warnings — `/admin/changelogs`, `/posts/[id]`,
+    `/phases/[id]`, `/notable-works`, `/complaints` all present in the
+    route table as expected (`ƒ Dynamic`, matching the CSP-nonce-forced-
+    dynamic architecture documented in `app/(site)/layout.tsx`).
+  * A pass for unresolved `RangeError`/unhandled-promise risk in any API
+    route or page loader found nothing new beyond what Mission B's Step
+    B.1 audit already covered and fixed.
+  * `CHANGELOG.md`/`CHANGELOG.txt`: Missions C and D had NOT been
+    changelogged at the time they landed (no explicit changelog-sync step
+    was requested in either of those missions' instructions) — backfilled
+    retroactively as additional bullets under the same
+    "Today's Checkpoint (2026-09-17)" section (per the standing
+    running-checkpoint convention: same calendar day extends the existing
+    checkpoint rather than opening a new version header), alongside
+    Mission E's own Discord/canonical/polish work.
+  * Commit message covers CI-only Discord dispatch with rate-limit
+    retries, full per-page self-canonical SEO, and the zero-warning
+    polish pass; pushed directly to `origin/main` per this mission's
+    explicit Task 5 instruction.
+
 3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE
 --------------------------------------------------------------------------------
 - Evidence over the user's initial hypothesis, surfaced transparently:
@@ -272,67 +507,150 @@ ADMIN CHANGELOGS DASHBOARD, SECURITY RE-AUDIT, AND CHANGELOG/DOSSIER SYNC
 
 4. COMPLETE REPOSITORY IMPACT (Files Touched)
 --------------------------------------------------------------------------------
-Created:
+Created (Mission A):
   - lib/changelog-data.ts
   - app/admin/(protected)/changelogs/page.tsx
   - components/admin/ChangelogBrowser.tsx
   - past_sessions_dossiers/2026-09-17-render-heap-hardening-and-changelog-dashboard.txt
-    (this file)
+    (this file — extended through the day rather than split per mission)
 
-Modified:
+Modified (Mission A):
   - next.config.ts (added explicit `cacheMaxMemorySize: 20MB`)
   - app/(site)/page.tsx (`.limit(200)` added to 4 previously-unpaginated
     homepage section queries)
   - components/admin/AdminSidebar.tsx (new "Changelogs" nav entry)
-  - CHANGELOG.md / CHANGELOG.txt (v1.15.0 entry)
+  - CHANGELOG.md / CHANGELOG.txt (v1.15.0 entry, later extended by every
+    subsequent mission's checkpoint bullets)
 
-Considered, edited, then reverted before commit:
+Considered, edited, then reverted before commit (Mission A):
   - package.json (`start` script briefly pointed at
     `.next/standalone/server.js` with an inline `--max-old-space-size`
     flag; reverted to `next start` — see Section 3's rationale)
 
+Created (Mission B):
+  - lib/safe-date.ts
+
+Modified (Mission B):
+  - app/admin/(protected)/posts/actions.ts
+  - app/admin/(protected)/posts/PostForm.tsx
+  - components/admin/ChangelogBrowser.tsx (NaN-guard on formatDate)
+  - app/admin/(protected)/usage/page.tsx (istDateString rewrite)
+  - app/admin/(protected)/settings/page.tsx
+  - lib/settings-nav.ts
+  - components/embeds/FacebookEmbed.tsx (stale comment fixed)
+
+Deleted (Mission B):
+  - app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx
+  - app/admin/(protected)/settings/integration-actions.ts
+
+Created (Mission C):
+  - lib/site-url.ts
+
+Modified (Mission C):
+  - app/layout.tsx (metadataBase + blanket canonical, latter later
+    corrected in Mission E)
+  - app/(site)/layout.tsx, app/sitemap.ts, app/robots.ts (now import
+    SITE_URL instead of local hardcoded copies)
+
+Modified (Mission D):
+  - package.json ("build" script -> `cross-env NODE_OPTIONS= next build`;
+    added `cross-env` devDependency)
+
+Modified (Mission E):
+  - app/layout.tsx (removed the blanket alternates.canonical from
+    Mission C)
+  - app/(site)/page.tsx (own `alternates.canonical: "/"`)
+  - app/(site)/posts/[id]/page.tsx (generateMetadata now also returns
+    alternates.canonical)
+  - app/(site)/phases/[id]/page.tsx (new generateMetadata — this route
+    had none before)
+  - app/(site)/notable-works/page.tsx, app/(site)/complaints/page.tsx
+    (alternates.canonical added to existing static metadata exports)
+  - .github/workflows/discord-notify.yml (curl retry/rate-limit flags)
+  - package.json (removed "notify:discord"/"deploy:push" scripts)
+  - .env.example (DISCORD_WEBHOOK_URL entry replaced with a CI-only note)
+  - CHANGELOG.md / CHANGELOG.txt (Missions C/D/E bullets backfilled into
+    the existing "Today's Checkpoint (2026-09-17)" section)
+
+Deleted (Mission E):
+  - scripts/notify-discord.js
+
 5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS
 --------------------------------------------------------------------------------
-- Render: user instructed this session to assume
-  `NODE_OPTIONS=--max-old-space-size=400` is already set as a dashboard
-  Environment Variable (per the 2026-09-16 session's unresolved action
-  item). This was NOT independently re-verified (no Render dashboard
-  access from this environment) — reported back explicitly at session
-  end as requested: variable name `NODE_OPTIONS`, value
-  `--max-old-space-size=400`. If it turns out this was never actually
-  added, that remains the single highest-leverage fix for a genuine
-  future exit-134 recurrence, independent of everything else this
-  session changed.
-- No environment variables added, removed, or modified in-repo this
-  session. No database migrations. No new Supabase table (the Changelogs
-  tab deliberately uses a static TS file instead).
-- GitHub: one push this session, directly to `origin/main` per explicit
-  standing instruction.
+- Render: `NODE_OPTIONS=--max-old-space-size=400` — Mission A's user
+  instruction was to assume it was already set; Mission D's build-log
+  investigation later independently CONFIRMED it genuinely is (the
+  build-time OOM crash it caused is only possible if it's active) — no
+  longer an open verification item.
+- Render's actual Build Command was revealed for the first time via
+  Mission D's pasted log: `npm install --include=dev && npm run build &&
+  cp -r .next/static .next/standalone/.next/static`. This command never
+  copies `public/` into `.next/standalone/` — flagged as a still-OPEN
+  action item in Section 6 below; requires a manual Render dashboard
+  edit (no dashboard access from this environment).
+- GitHub Actions: `DISCORD_WEBHOOK` repository secret — confirmed present
+  and functional (not dead/wrong: it posted successfully on at least one
+  of the day's three pushes). Its intermittent curl-exit-22 failures on
+  the other two are diagnosed as Discord-side rate limiting from several
+  pushes landing close together that day, not a broken secret; Mission
+  E's `--retry --retry-all-errors` addition should absorb that going
+  forward. No further action needed unless it starts failing on a single,
+  isolated, non-rapid-fire push.
+- `.env.example`'s `DISCORD_WEBHOOK_URL` (a local-only variable, distinct
+  from the CI secret above) was removed this session (Mission E) along
+  with the local script that read it — Discord notifications are now
+  strictly CI-only by design, not just by convention.
+- No Supabase database migrations this session. `integration_settings`
+  table schema (uuid/text id-column mismatch) explicitly left untouched
+  per Mission B/E's own instructions — now unreachable from any UI, but
+  not resolved at the database level.
+- GitHub: four pushes to `origin/main` this session (Missions A, B, C, D),
+  a fifth pending at the end of Mission E (see Section 6).
 
 6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS
 --------------------------------------------------------------------------------
-- IMMEDIATE: if exit-134 recurs even with `NODE_OPTIONS` confirmed set
-  correctly on Render, that would contradict this session's (and the
-  2026-09-16 session's) diagnosis of a heap-ceiling/headroom mismatch and
-  point to a genuinely new cause — the next step in that case is pulling
-  the actual current Render crash log tail (as the 2026-09-16 session
-  did) rather than assuming the same root cause still applies.
-- Two secondary, non-fatal, unresolved items carried forward unchanged
-  from the 2026-09-16 dossier (not touched this session, should only be
-  picked up if asked): the recurring `RangeError: Invalid time value`
-  log noise (root cause not yet identified), and the pre-existing
-  `integration_settings` uuid/text id-column mismatch (blocks saving Meta
-  App ID/Secret via the Settings UI).
-- `lib/changelog-data.ts` is now the canonical source for the dashboard's
+- OPEN: Render's Build Command needs a manual dashboard edit to also copy
+  `public/` into the standalone output (harmless today only because the
+  sole file in `public/` — favicon.ico — is actually served via the
+  separate `app/icon.tsx` route instead; would matter for anything added
+  to `public/` later). Corrected command already given to the user:
+  `npm install --include=dev && npm run build && cp -r public
+  .next/standalone/ && cp -r .next/static .next/standalone/.next/static`.
+- RESOLVED this session, no longer open: exit-134 runtime OOM hardening
+  (Mission A), build-time OOM (Mission D), `RangeError: Invalid time
+  value` (Mission B), non-functional Meta oEmbed UI (Mission B, removed),
+  SEO canonical/metadataBase gap (Mission C, then corrected to per-page
+  canonicals in Mission E), Discord CI rate-limit fragility + local-push
+  notification path (Mission E).
+- LOW PRIORITY / effectively moot: `integration_settings` uuid/text
+  id-column schema mismatch remains in the database (untouched, per
+  explicit "do not touch" instructions in both Mission B and Mission E),
+  but is now unreachable from any UI since the only form that wrote to it
+  was deleted in Mission B. Only relevant again if Meta Graph API
+  credentials are ever revived.
+- OPTIONAL, not bugs: `CLOUDFLARE_API_TOKEN` (unlocks `/admin/usage`'s
+  live R2 Class A/B metrics panel), `CRON_SECRET` (locks down
+  `/api/cron/purge-complaints`, optional since that route's operation is
+  already idempotent/low-risk), `ENABLE_ADMIN_2FA` + a delivery channel
+  (Resend and/or Fast2SMS/Twilio) — all already documented in
+  `.env.example` with where to obtain each value; none are broken,
+  they're simply unopted-into features.
+- `lib/changelog-data.ts` is the canonical source for the dashboard's
   Changelogs tab going forward — any future version bump should add a
   new entry there (prepended, newest-first) alongside the usual
   CHANGELOG.md/CHANGELOG.txt update, authoring fresh `simple` content
   rather than expecting it to be derivable from the technical changelog
-  prose.
-- Working tree state at the end of this session: all of this session's
-  changes (Missions 1–4, including this dossier) are committed and
-  pushed to `origin/main`, per this session's standing instruction to
-  push directly without a separate confirmation step.
+  prose. As of this session it does NOT yet have a v1.16.0-equivalent
+  entry for Missions B-E's work (all of it, so far, has landed inside the
+  v1.15.0 "Today's Checkpoint" — the changelog-data.ts dashboard entry
+  itself was only ever authored for the state as of Mission A and has not
+  been updated to reflect Missions B-E; doing so is a reasonable next
+  step but wasn't explicitly requested).
+- Working tree state at the end of this session: Missions A-D are
+  committed and pushed to `origin/main`. Mission E (this dossier update,
+  Discord CI hardening, per-page canonicals, .env.example/package.json
+  cleanup) is complete, lint/build-verified, and ready for the commit +
+  push its own Task 5 explicitly calls for.
 ================================================================================
 END OF DOSSIER
 ================================================================================

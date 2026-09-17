@@ -77,6 +77,37 @@ Today's Checkpoint (2026-09-17):
   * Security: full audit re-run (every route/action's auth,
     NEXT_PUBLIC_*/secret exposure, confirming ENABLE_ADMIN_2FA left
     unset safely skips OTP rather than dead-ending) - zero findings.
+  * Fixed: root-domain URL variants (http://, www.) showing under Search
+    Console's "Page with redirect" - added metadataBase: new
+    URL(SITE_URL) to the true root app/layout.tsx (new lib/site-url.ts
+    centralizes the canonical https://janatardipak.com origin) and
+    pointed app/sitemap.ts/app/robots.ts at the same constant instead of
+    their own hardcoded copies.
+  * Fixed: Render build (not runtime) crashing with a V8 heap OOM during
+    the TypeScript-check phase of next build -
+    NODE_OPTIONS=--max-old-space-size=400 (added to fix the runtime OOM,
+    see v1.14.0) applies to every Node process in the Render
+    environment, including the build step, starving its typecheck of
+    headroom. package.json's "build" script now runs as cross-env
+    NODE_OPTIONS= next build, clearing the inherited ceiling for that
+    step only; cross-env (new devDependency) over a raw NODE_OPTIONS=
+    next build prefix specifically because the bare syntax fails on
+    Windows cmd.exe.
+  * Changed: per-page self-canonicals - the blanket
+    alternates.canonical: "/" added to the root layout above was wrong
+    for every route but the homepage (it made every post/phase/etc.
+    wrongly self-canonicalize to /). Moved to the homepage itself
+    (app/(site)/page.tsx) and added a matching route-specific canonical
+    to posts/[id], phases/[id] (which also gained its own
+    generateMetadata/title - it had none before), notable-works, and
+    complaints.
+  * Changed: Discord push notifications are now strictly CI-only.
+    Removed the local-push path entirely (scripts/notify-discord.js, and
+    package.json's deploy:push/notify:discord scripts) - only
+    .github/workflows/discord-notify.yml (on every push to origin/main)
+    sends one, now with --retry 3 --retry-delay 5 --retry-all-errors on
+    its curl call so a transient Discord rate-limit (429) no longer
+    fails the step outright.
 
   Files touched: lib/safe-date.ts (new),
   app/admin/(protected)/posts/actions.ts,
@@ -86,7 +117,13 @@ Today's Checkpoint (2026-09-17):
   app/admin/(protected)/settings/page.tsx, lib/settings-nav.ts,
   components/embeds/FacebookEmbed.tsx,
   components/admin/ChangelogBrowser.tsx,
-  app/admin/(protected)/usage/page.tsx.
+  app/admin/(protected)/usage/page.tsx, lib/site-url.ts (new),
+  app/layout.tsx, app/(site)/layout.tsx, app/sitemap.ts, app/robots.ts,
+  app/(site)/page.tsx, app/(site)/posts/[id]/page.tsx,
+  app/(site)/phases/[id]/page.tsx, app/(site)/notable-works/page.tsx,
+  app/(site)/complaints/page.tsx, package.json, .env.example,
+  .github/workflows/discord-notify.yml,
+  scripts/notify-discord.js (removed).
 
 --------------------
 

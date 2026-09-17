@@ -16,6 +16,7 @@ import { formatPostDate } from "@/lib/post-date";
 
 export const metadata: Metadata = {
   title: "Notable Works",
+  alternates: { canonical: "/notable-works" },
 };
 
 const PAGE_SIZE = 12;

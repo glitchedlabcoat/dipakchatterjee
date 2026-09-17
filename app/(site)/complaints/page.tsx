@@ -1,13 +1,15 @@
 // app/(site)/complaints/page.tsx
 import Link from "next/link";
+import type { Metadata } from "next";
 import { ArrowLeft } from "lucide-react";
 import ComplaintForm from "@/components/complaints/ComplaintForm";
 import { getSiteSettings } from "@/lib/queries/settings";
 import type { SiteSettings } from "@/types/domain";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Submit a Complaint",
   description: "File a complaint with Dipak Chatterjee's office and get a reference number for follow-up.",
+  alternates: { canonical: "/complaints" },
 };
 
 const DEFAULT_CONTACT_EMAIL = "dipak.chatterjee304@gmail.com";

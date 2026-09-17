@@ -9,9 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "update-types": "supabase gen types typescript --linked > types/database.types.ts",
-    "migrate:r2": "tsx scripts/migrate-supabase-to-r2.ts",
-    "notify:discord": "node scripts/notify-discord.js",
-    "deploy:push": "git push origin main && npm run notify:discord"
+    "migrate:r2": "tsx scripts/migrate-supabase-to-r2.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",
