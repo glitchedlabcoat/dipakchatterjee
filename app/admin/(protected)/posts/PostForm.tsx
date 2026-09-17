@@ -29,11 +29,18 @@ const linkSchema = z.object({
   label: z.string().trim().max(80).optional(),
 });
 
+// Empty is always valid (falls back to the DB's own `default now()` —
+// see actions.ts); a non-empty value must actually parse, so a
+// devtools-edited/extension-injected value can't reach the server
+// action and throw "RangeError: Invalid time value" there instead of
+// failing here with a normal form error.
+const isEmptyOrParseableDate = (value: string | undefined) => !value || !Number.isNaN(new Date(value).getTime());
+
 const postSchema = z.object({
   title: z.string().trim().max(200).optional(),
   body: z.string().trim().max(20000).optional(),
-  published_at: z.string().optional(),
-  published_date: z.string().optional(),
+  published_at: z.string().optional().refine(isEmptyOrParseableDate, "Enter a valid date and time."),
+  published_date: z.string().optional().refine(isEmptyOrParseableDate, "Enter a valid date."),
   show_published_time: z.boolean(),
   is_published: z.boolean(),
   links: z.array(linkSchema).max(10),

@@ -37,14 +37,23 @@ function parseMode(value: string | undefined): Mode {
   return value === "advanced" ? "advanced" : "simple";
 }
 
+// Formats "now" directly in IST via Intl (en-CA's output is YYYY-MM-DD)
+// instead of the previous round-trip — new Date(now.toLocaleString(...))
+// re-parses a locale-formatted string back through the Date
+// constructor, which only works because V8 happens to accept that
+// specific output format; nothing in the spec guarantees it. Once we
+// have today's IST calendar date as y/m/d, subtracting `daysAgo` is done
+// with a UTC-anchored Date (setUTCDate), so the arithmetic itself can't
+// be shifted by re-entering a *different* local timezone either.
 function istDateString(daysAgo: number) {
-  const now = new Date();
-  const istNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  istNow.setDate(istNow.getDate() - daysAgo);
-  const y = istNow.getFullYear();
-  const m = String(istNow.getMonth() + 1).padStart(2, "0");
-  const d = String(istNow.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+  const todayIst = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  const [y, m, d] = todayIst.split("-").map(Number);
+  const anchor = new Date(Date.UTC(y, m - 1, d));
+  anchor.setUTCDate(anchor.getUTCDate() - daysAgo);
+  const yy = anchor.getUTCFullYear();
+  const mm = String(anchor.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(anchor.getUTCDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
 }
 
 function formatBytes(bytes: number) {

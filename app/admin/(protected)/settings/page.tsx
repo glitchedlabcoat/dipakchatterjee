@@ -20,10 +20,9 @@ import ThemeColorForm from "./ThemeColorForm";
 import BrandingTextForm from "./BrandingTextForm";
 import SeoSnippetForm from "./SeoSnippetForm";
 import NotableWorksLimitControl from "./NotableWorksLimitControl";
-import MetaOEmbedSettingsForm from "./MetaOEmbedSettingsForm";
 import SettingsTabs from "./SettingsTabs";
 import { SETTINGS_TABS, DEFAULT_SETTINGS_TAB, isSettingsTabId } from "@/lib/settings-nav";
-import type { IntegrationSettings, Profile } from "@/types/domain";
+import type { Profile } from "@/types/domain";
 
 // Each of these mounts its own @dnd-kit sortable board — code-split so
 // the /admin/settings route's client bundle only pays for whichever
@@ -121,10 +120,9 @@ export default async function SettingsPage({
   // run on every load regardless of `?tab=`; SettingsTabs only ever
   // rendered one of those nine query results, so the other data was
   // real, wasted Supabase round trips on every single settings page view.
-  const NONE = Promise.resolve({ data: null });
   const EMPTY = Promise.resolve({ data: [] });
 
-  let settings, organizations, ctaButtons, footerBlocks, socialLinks, navLinks, headerActions, profiles, integrationSettings;
+  let settings, organizations, ctaButtons, footerBlocks, socialLinks, navLinks, headerActions, profiles;
 
   try {
     [
@@ -136,7 +134,6 @@ export default async function SettingsPage({
       { data: navLinks },
       { data: headerActions },
       { data: profiles },
-      { data: integrationSettings },
     ] = await Promise.all([
       supabase.from("site_settings").select("*").eq("id", "default").single(),
       activeTab === "media"
@@ -162,7 +159,6 @@ export default async function SettingsPage({
         ? supabase.from("header_actions").select("*").order("display_order", { ascending: true })
         : EMPTY,
       activeTab === "users" ? supabase.from("profiles").select("*").order("created_at", { ascending: true }) : EMPTY,
-      activeTab === "media" ? supabase.from("integration_settings").select("*").eq("id", "default").single() : NONE,
     ]);
   } catch (err) {
     console.error("[SettingsPage] settings data load failed:", err);
@@ -253,11 +249,6 @@ export default async function SettingsPage({
             <OrganizationsManager
               organizations={(organizations as Organization[]) ?? []}
               orgMaxPerRow={s?.org_max_per_row ?? 6}
-            />
-
-            <MetaOEmbedSettingsForm
-              appId={(integrationSettings as IntegrationSettings | null)?.meta_app_id ?? ""}
-              appSecret={(integrationSettings as IntegrationSettings | null)?.meta_app_secret ?? ""}
             />
           </>
         }

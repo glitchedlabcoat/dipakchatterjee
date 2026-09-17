@@ -8,10 +8,11 @@
 // touched here). Meta's plugins/post.php iframe endpoint has become
 // unreliable for apps without Business Verification — XFBML is the
 // officially documented no-API-key path and doesn't hit that wall,
-// since it never calls the Graph API at all (see
-// app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx, whose App
-// ID/Secret fields are unrelated to this and stay in place for future
-// use once verified).
+// since it never calls the Graph API at all. (The Graph API App ID/
+// Secret credentials this could someday use if Business Verification is
+// obtained were removed from the admin Settings UI — see
+// supabase/migrations/20260929000000_integration_settings.sql for the
+// still-standing table they'd live in.)
 //
 // XFBML has two DISTINCT plugins, not one: fb-post (text/photo posts)
 // and fb-video (videos and Reels) — handing a video/Reel permalink to

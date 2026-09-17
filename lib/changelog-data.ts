@@ -42,7 +42,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     title: "Render memory hardening + the page you're reading right now",
     simple: {
       summary:
-        "Two things today. First, we double-checked the site's Render crash (the one that took the whole dashboard down until someone cleared the cache): a full audit found the caching system was never actually the problem — it's already capped and healthy. The real fix is Render's memory limit setting, which is confirmed in place. On top of that we tightened a few safety margins anyway, for extra peace of mind. Second: this Changelogs page. It exists so you don't have to ask a developer \"what did that last update actually do\" — pick a date, pick a version, and read it in plain English.",
+        "Several things today. First, we double-checked the site's Render crash (the one that took the whole dashboard down until someone cleared the cache): a full audit found the caching system was never actually the problem — it's already capped and healthy. The real fix is Render's memory limit setting, which is confirmed in place. On top of that we tightened a few safety margins anyway, for extra peace of mind. Second: this Changelogs page. It exists so you don't have to ask a developer \"what did that last update actually do\" — pick a date, pick a version, and read it in plain English. Third, we finally found and fixed the occasional \"Invalid time value\" error in the server logs — it happened only if a post's publish date/time was somehow malformed; that's now caught and handled gracefully instead of crashing. Fourth, the Meta App ID/App Secret fields in Settings > Media & Display have been removed — they never actually worked (a database setup step behind them was never finished), and Facebook/Instagram embeds don't depend on them anyway.",
       tutorial: [
         "Open Changelogs from the sidebar.",
         "Pick a date on the left — the versions shipped that day appear underneath it.",
@@ -59,6 +59,10 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         { type: "added", text: "lib/changelog-data.ts: new structured changelog data source (version, date, simple + advanced content per entry) backing the new admin Changelogs tab." },
         { type: "added", text: "app/admin/(protected)/changelogs/page.tsx + components/admin/ChangelogBrowser.tsx: new admin page — Date-then-Version navigation, an instant client-side Simple/Advanced toggle (useTransition, zero re-fetch, since all content for every entry is already in the client's initial props)." },
         { type: "security", text: "Full re-audit of every app/api/*/route.ts and server action, NEXT_PUBLIC_* usage, and proxy.ts's CSP directive set: zero regressions from the 2026-09-15/09-16 baselines. No route/action lacks appropriate auth or validation; no secret is client-exposed; CSP matches the documented post-R2/post-Facebook-embed state." },
+        { type: "fixed", text: "RangeError: Invalid time value, root cause found: app/admin/(protected)/posts/actions.ts's published_at handling only truthy-checked the admin's datetime input before calling new Date(...).toISOString(), never validating it actually parsed. New lib/safe-date.ts (parseValidDate, plus safeDate/safeToISOString for future call sites) backs a proper guard there; PostForm.tsx's Zod schema gained a matching .refine() so an unparseable value fails as a normal form error instead of reaching the server. A full repo-wide audit of every date-formatting call site found no other one at genuine risk." },
+        { type: "changed", text: "ChangelogBrowser.tsx's date formatter and /admin/usage's istDateString() hardened as low-risk hygiene fixes surfaced by the same date audit (a hypothetical hand-typo'd changelog date, and a fragile toLocaleString()-round-trip pattern, respectively)." },
+        { type: "changed", text: "Removed the non-functional Meta App ID/App Secret fields from Settings > Media & Display (MetaOEmbedSettingsForm.tsx, integration-actions.ts deleted) — they wrote to integration_settings, whose schema migration was never actually applied to the live database, so saving always failed. The 3-tier Facebook embed fallback (XFBML → iframe → outbound link) never depended on these credentials." },
+        { type: "security", text: "Re-confirmed ENABLE_ADMIN_2FA left unset safely skips the OTP challenge (strict === \"true\" check) rather than dead-ending a login." },
       ],
       filesChanged: [
         "next.config.ts",
@@ -69,6 +73,15 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         "components/admin/AdminSidebar.tsx",
         "CHANGELOG.md",
         "CHANGELOG.txt",
+        "lib/safe-date.ts (new)",
+        "app/admin/(protected)/posts/actions.ts",
+        "app/admin/(protected)/posts/PostForm.tsx",
+        "app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (removed)",
+        "app/admin/(protected)/settings/integration-actions.ts (removed)",
+        "app/admin/(protected)/settings/page.tsx",
+        "lib/settings-nav.ts",
+        "components/embeds/FacebookEmbed.tsx",
+        "app/admin/(protected)/usage/page.tsx",
       ],
     },
   },

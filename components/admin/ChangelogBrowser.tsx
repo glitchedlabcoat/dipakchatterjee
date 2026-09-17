@@ -34,11 +34,16 @@ const CHANGE_TYPE_STYLE: Record<ChangelogChangeType, string> = {
 // Parsed as a plain local date, not new Date(dateStr) (which reads
 // YYYY-MM-DD as UTC midnight and can render a day early in negative-UTC
 // timezones) — the stored value is a calendar date, not an instant.
+// entries come from a hand-authored data file (lib/changelog-data.ts),
+// not a validated form — a future typo'd date (non-numeric, out of
+// range) would otherwise make Intl.DateTimeFormat.format() throw
+// "RangeError: Invalid time value" and take the whole page down with
+// it, so an invalid result falls back to the raw string instead.
 function formatDate(dateStr: string) {
   const [y, m, d] = dateStr.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(
-    new Date(y, m - 1, d)
-  );
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  return new Intl.DateTimeFormat("en-US", { year: "numeric", month: "long", day: "numeric" }).format(date);
 }
 
 export default function ChangelogBrowser({ entries }: { entries: ChangelogEntry[] }) {

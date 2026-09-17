@@ -7,7 +7,23 @@ import { requireAdmin } from "@/lib/admin-guard";
 import { logDashboardActivity } from "@/lib/activity-log";
 import { TAG_POST_ITEM, TAG_POSTS_LIST, revalidatePublicTag } from "@/lib/cache";
 import { deleteStoredMedia, deleteStoredMediaBatch } from "@/lib/storage-delete";
+import { parseValidDate } from "@/lib/safe-date";
 import { POST_BUCKET, type MediaKind, type PostLink } from "@/types/domain";
+
+// `input.published_at` traces back to an admin's datetime-local/date
+// input (PostForm.tsx), not a DB column — a truthy check alone doesn't
+// guarantee it's a parseable date (native pickers only ever produce a
+// well-formed string or "", but a devtools-edited/extension-injected
+// value could still slip an unparseable one through PostForm's own zod
+// .refine()). new Date(garbage).toISOString() throws
+// "RangeError: Invalid time value", which is exactly the intermittent
+// production crash this guards against. Invalid input is treated the
+// same as empty: the key is omitted so the column's `default now()`
+// applies, rather than 500ing the whole save.
+function toValidPublishedAt(value: string): { published_at: string } | Record<string, never> {
+  const d = parseValidDate(value);
+  return d ? { published_at: d.toISOString() } : {};
+}
 
 // Every mutation below changes either which posts are published/how
 // they're ordered (-> TAG_POSTS_LIST) or one specific post's own
@@ -47,8 +63,9 @@ export async function createPost(input: PostFormInput) {
       title: input.title || null,
       body: input.body || null,
       // Omitted (not just null) so the column's `default now()` applies
-      // when the admin leaves the picker untouched/cleared.
-      ...(input.published_at ? { published_at: new Date(input.published_at).toISOString() } : {}),
+      // when the admin leaves the picker untouched/cleared (or typed
+      // something unparseable — see toValidPublishedAt above).
+      ...toValidPublishedAt(input.published_at),
       show_published_time: input.show_published_time,
       is_published: input.is_published,
       links: input.links,
@@ -80,7 +97,7 @@ export async function updatePost(id: string, input: PostFormInput) {
     .update({
       title: input.title || null,
       body: input.body || null,
-      ...(input.published_at ? { published_at: new Date(input.published_at).toISOString() } : {}),
+      ...toValidPublishedAt(input.published_at),
       show_published_time: input.show_published_time,
       is_published: input.is_published,
       links: input.links,

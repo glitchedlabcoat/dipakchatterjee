@@ -29,6 +29,14 @@ retroactively rewritten.
 - `components/admin/ChangelogBrowser.tsx` (new)
 - `components/admin/AdminSidebar.tsx`
 
+### Today's Checkpoint (2026-09-17)
+
+- Fixed: `RangeError: Invalid time value` (the recurring Render log noise flagged since 2026-09-16) — root cause found. `app/admin/(protected)/posts/actions.ts`'s `published_at` handling only truthy-checked the admin's datetime input before calling `new Date(...).toISOString()`, never validating it actually parsed; a devtools-edited or extension-injected form value could throw this exact error. New `lib/safe-date.ts` (`parseValidDate`, plus `safeDate`/`safeToISOString` for future call sites) backs a proper guard there, and a matching client-side Zod `.refine()` in `PostForm.tsx` now catches it as a normal form error before it ever reaches the server. A full repo-wide audit of every `.toISOString()`/`.toLocaleString()`/`Intl.DateTimeFormat` call site found no other one at genuine risk — everything else is fed either a bare `new Date()` or a Supabase column enforced `NOT NULL`. Two low-risk hygiene fixes applied anyway: `ChangelogBrowser.tsx`'s date formatter no longer throws on a hypothetical hand-typo'd changelog date, and `/admin/usage`'s `istDateString()` no longer round-trips a date through its own `toLocaleString()` output.
+- Removed: the non-functional Meta App ID/App Secret fields from Settings > Media & Display (`MetaOEmbedSettingsForm.tsx`, `integration-actions.ts`, both deleted). They wrote to `integration_settings`, whose schema migration was never actually applied to the live database (see 2026-09-15's dossier), so saving always failed. The 3-tier Facebook embed fallback (XFBML -> iframe -> outbound link) never depended on these credentials and is unaffected.
+- Security: full audit re-run (every route/action's auth, `NEXT_PUBLIC_*`/secret exposure, confirming `ENABLE_ADMIN_2FA` left unset safely skips OTP rather than dead-ending) — zero findings.
+
+Files touched: `lib/safe-date.ts` (new), `app/admin/(protected)/posts/actions.ts`, `app/admin/(protected)/posts/PostForm.tsx`, `app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx` (removed), `app/admin/(protected)/settings/integration-actions.ts` (removed), `app/admin/(protected)/settings/page.tsx`, `lib/settings-nav.ts`, `components/embeds/FacebookEmbed.tsx`, `components/admin/ChangelogBrowser.tsx`, `app/admin/(protected)/usage/page.tsx`.
+
 ## [v1.14.0] - 2026-09-16
 
 ### Fixed
