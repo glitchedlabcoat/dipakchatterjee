@@ -588,14 +588,32 @@ Deleted (Mission E):
   copies `public/` into `.next/standalone/` — flagged as a still-OPEN
   action item in Section 6 below; requires a manual Render dashboard
   edit (no dashboard access from this environment).
-- GitHub Actions: `DISCORD_WEBHOOK` repository secret — confirmed present
-  and functional (not dead/wrong: it posted successfully on at least one
-  of the day's three pushes). Its intermittent curl-exit-22 failures on
-  the other two are diagnosed as Discord-side rate limiting from several
-  pushes landing close together that day, not a broken secret; Mission
-  E's `--retry --retry-all-errors` addition should absorb that going
-  forward. No further action needed unless it starts failing on a single,
-  isolated, non-rapid-fire push.
+- GitHub Actions: `DISCORD_WEBHOOK` repository secret. Mission E's own
+  diagnosis (immediately above, in the original version of this section)
+  — that the intermittent curl-exit-22 failures were Discord-side rate
+  limiting — was WRONG, and was corrected the same day in a follow-up
+  troubleshooting round (after Mission E's push, not its own numbered
+  mission): the user reported the failures were still happening and
+  getting frustrating, replaced the Discord webhook with a freshly
+  generated one, and the SAME exit-22 failure still occurred on the new
+  URL. Testing the new webhook directly with `curl` (outside CI, a plain
+  POST to the raw URL) returned HTTP 204 — proof the webhook itself was
+  always fine. The real, now-confirmed root cause: Discord hard-rejects
+  any embed field value over 1024 characters (a 400, surfaced by
+  `curl -f` as exit 22); `.github/workflows/discord-notify.yml`'s
+  "Full message" field sent the ENTIRE commit message with no
+  truncation, and this repo's own conventional-commit bodies (this
+  session's own commits included — several ran 1000+ characters) routinely
+  exceed that. The old, now-deleted `scripts/notify-discord.js` had a
+  `truncate()` helper for exactly this reason; the GitHub Actions
+  workflow never did. Fixed by truncating the "Full message" field to
+  1024 chars (1023 + an ellipsis) via a `jq` conditional, verified
+  against a 1200-char synthetic test string before shipping, then
+  confirmed end-to-end on a real push (run succeeded, message arrived in
+  Discord). The `--retry --retry-all-errors` flags from Mission E are
+  still worth keeping (genuine transient-error protection) but were
+  never what was actually wrong here — don't let a future session
+  re-diagnose this as "just retry harder" again.
 - `.env.example`'s `DISCORD_WEBHOOK_URL` (a local-only variable, distinct
   from the CI secret above) was removed this session (Mission E) along
   with the local script that read it — Discord notifications are now
@@ -646,6 +664,20 @@ Deleted (Mission E):
   itself was only ever authored for the state as of Mission A and has not
   been updated to reflect Missions B-E; doing so is a reasonable next
   step but wasn't explicitly requested).
+- STANDING REMINDER for every future session, per user request: this
+  workflow's Discord notification now auto-truncates any commit message
+  over 1024 characters before sending, so a long commit body will NOT
+  break the CI push notification anymore — that failure mode is closed.
+  It'll just get cut off with an ellipsis in Discord past character
+  1024, which is a readability nicety, not a functional requirement —
+  there's no need to artificially keep future commit messages short
+  purely to dodge this; the truncation makes length itself a non-issue.
+  If Discord notifications ever fail again, do NOT default to "must be
+  the commit message length" or "must be rate limiting" without first
+  testing the webhook URL directly (`curl`/`Invoke-RestMethod` straight
+  to the raw webhook URL, outside CI) — that single check is what
+  actually separated "webhook is dead" from "payload is malformed" this
+  session, after an incorrect first guess.
 - Working tree state at the end of this session: Missions A-D are
   committed and pushed to `origin/main`. Mission E (this dossier update,
   Discord CI hardening, per-page canonicals, .env.example/package.json
