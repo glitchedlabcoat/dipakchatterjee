@@ -683,6 +683,83 @@ Deleted (Mission E):
   Discord CI hardening, per-page canonicals, .env.example/package.json
   cleanup) is complete, lint/build-verified, and ready for the commit +
   push its own Task 5 explicitly calls for.
+7. PENDING AGENDAS / FUTURE ROADMAP
+--------------------------------------------------------------------------------
+Everything below is deliberately NOT implemented yet — each is either an
+opt-in feature the user hasn't activated, or work intentionally parked
+pending a decision only the user can make. None of these are bugs; none
+block anything currently live.
+
+[7.1 — Admin 2FA Implementation (Deferred)]
+  - Currently disabled: ENABLE_ADMIN_2FA is unset/"false"
+    (lib/feature-flags.ts), so a correct password alone signs an admin in
+    immediately. Deliberately left this way — turning the flag on
+    without at least one delivery channel configured would dead-end
+    every login behind an OTP that can never arrive. lib/otp-login.ts
+    already has a channel-presence check that skips the OTP challenge
+    entirely when neither channel is set, precisely to avoid that
+    lockout — so the flag is safe to flip the moment a channel exists.
+  - To finish this: configure at least one delivery channel, both
+    documented in .env.example —
+      * Email via Resend (lib/notify/email.ts): RESEND_API_KEY,
+        RESEND_FROM_EMAIL
+      * SMS via Fast2SMS or Twilio (lib/notify/sms.ts): SMS_PROVIDER
+        plus that provider's own credential variables
+    — then set ENABLE_ADMIN_2FA=true on Render (dashboard Environment
+    tab, not .env.local). The OTP challenge flow itself (verify-otp
+    page, otp-session signing/cookie, otp hashing) is already fully
+    built and shipped; this is purely provisioning + a flag flip, not
+    new code.
+
+[7.2 — Meta Graph API Credentials & integration_settings Schema (Parked)]
+  - The non-functional Meta App ID/App Secret admin UI
+    (MetaOEmbedSettingsForm.tsx, integration-actions.ts) was removed in
+    this session's Mission B because it always failed to save — the
+    underlying integration_settings table's schema was never correctly
+    migrated onto the live database.
+  - Root defect: the table's id column is uuid, but every intended
+    read/write path assumes a single fixed-id row addressed as
+    id = 'default' (text). If Meta Graph API credential storage is ever
+    revived, the fix is a real migration — ALTER TABLE
+    integration_settings to change id to text with a 'default' default
+    (or an equivalent recreate-and-backfill) — then rewiring whatever
+    admin mutation writes to it to match. This was NOT done this
+    session per explicit "do not touch" instructions (reaffirmed in
+    both Mission B and Mission E) — the table itself is untouched, just
+    unreachable from any UI now.
+  - Not urgent: the public site's 3-tier Facebook/Instagram embed
+    fallback (XFBML -> iframe -> outbound link) never depended on these
+    credentials and is fully operational without them.
+
+[7.3 — Background Cleanup Cron Job Scheduling (CRON_SECRET)]
+  - /api/cron/purge-complaints (purgeExpiredComplaints(),
+    lib/complaints-cleanup.ts) already runs inline on every admin
+    dashboard load as a fallback, so expired complaints ARE being
+    cleaned up today even with no external scheduler — this item is an
+    optimization, not a currently-broken safety net.
+  - If CRON_SECRET is set (.env.example), the route requires an
+    Authorization: Bearer <CRON_SECRET> header; left unset, the route
+    accepts unauthenticated requests (acceptable since the operation is
+    idempotent and low-risk — it only deletes complaints already past
+    their expiration).
+  - Still to configure, if a real recurring schedule independent of
+    admin dashboard visits is wanted: point an external scheduler at
+    this route on a recurring interval — a Render Cron Job service, a
+    GitHub Actions scheduled workflow, or a third-party pinger like
+    cron-job.org — sending that same Authorization header.
+
+[7.4 — Cloudflare Live R2 Operation Counts (CLOUDFLARE_API_TOKEN)]
+  - Optional. Every other panel on /admin/usage (Supabase egress, R2
+    storage size/object count) already works without this token — only
+    the Advanced-mode "live Cloudflare R2 metrics" panel (Class A/B
+    operation counts) is gated on it, and degrades to "not connected"
+    rather than erroring when it's absent (lib/cloudflare-analytics.ts).
+  - To enable: generate a token at Cloudflare dashboard -> My Profile ->
+    API Tokens, scoped to "Account Analytics: Read" only on this
+    account, then add it as CLOUDFLARE_API_TOKEN in Render's
+    Environment tab (not .env.local — this is a Render-only variable,
+    same pattern as the other R2 credentials).
+
 ================================================================================
 END OF DOSSIER
 ================================================================================
