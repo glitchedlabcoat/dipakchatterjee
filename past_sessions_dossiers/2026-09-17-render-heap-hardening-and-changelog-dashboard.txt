@@ -760,6 +760,98 @@ block anything currently live.
     Environment tab (not .env.local — this is a Render-only variable,
     same pattern as the other R2 credentials).
 
+8. CRITICAL CORRECTION: THE RENDER OOM WAS A REAL LEAK ALL ALONG
+--------------------------------------------------------------------------------
+This section corrects a conclusion this dossier (Section 1's Context, and
+Mission 1's Step 1.1 investigation, above) and the 2026-09-16 dossier
+before it both stated with confidence: that the exit-134 crashes were a
+one-time V8 heap-ceiling/headroom mismatch on a 512MB container, NOT a
+genuine memory leak, because heap usage appeared to "plateau" rather than
+grow without bound. That conclusion was WRONG — or at least incomplete:
+it was drawn from a short observation window that never ran long enough
+to see the real shape of the growth curve.
+
+[8.1 — What actually happened]
+  - Hours after this session's earlier work, the user pasted a fresh
+    Render crash log. instrumentation.ts's periodic memory logger (added
+    in v1.14.0, 15-minute interval) had captured the full picture this
+    time: rss/heapUsed climbed SMOOTHLY and MONOTONICALLY for
+    approximately 2 hours (275MB -> 482MB rss) before the process OOM'd
+    and Render restarted it — and then, on the fresh restart, climbed
+    again at the SAME rate (171MB -> 372MB rss over the next ~2.5 hours)
+    before the log was pasted. A one-time ceiling/headroom mismatch
+    cannot produce this shape (it would plateau near the ceiling and
+    stay there); only genuine, ongoing accumulation produces a smooth
+    climb that resets to a low baseline and repeats identically after
+    every restart. Earlier sessions' shorter log windows simply never
+    ran long enough to see the climb continue past a plateau-looking
+    midpoint.
+
+[8.2 — Root cause, found and fixed this session]
+  - utils/supabase/public.ts's createPublicClient() and
+    utils/supabase/admin.ts's createServiceClient() both called plain
+    `@supabase/supabase-js` createClient() without disabling
+    `autoRefreshToken` (both had no auth options at all, or only
+    `persistSession: false`, which does NOT control this). auth-js's
+    GoTrueClient starts an un-cleared `setInterval` token-refresh ticker
+    unconditionally in any non-browser environment — confirmed by
+    reading node_modules/@supabase/auth-js/dist/main/GoTrueClient.js's
+    own `_handleVisibilityChange()`, whose comment literally says "in
+    non-browser environments the refresh token ticker runs always." The
+    ticker is `unref()`'d (so it doesn't block process exit) but is
+    NEVER cleared, and its closure keeps the entire client instance —
+    postgrest/realtime/storage sub-clients, memoryStorage, everything —
+    alive in the heap permanently.
+  - createPublicClient() is called fresh (not reused/memoized) inside 6
+    separate `unstable_cache`-wrapped public read functions
+    (getHomepageSections, getSiteSettings, getSiteChrome,
+    getPublishedPhase, getPostsList, getPostById) every time any of them
+    has a cache miss — meaning real traffic left a steadily growing
+    population of zombie Supabase clients in memory, each with its own
+    permanent 30-second ticker. This is exactly why the 2026-09-16
+    session's `NODE_OPTIONS=--max-old-space-size=400` fix only delayed
+    the crash instead of resolving it: it gave the leak more room to run
+    before hitting the new, higher ceiling.
+  - utils/supabase/server.ts (the per-request cookie-based admin client)
+    was independently confirmed NOT to have this bug —
+    `@supabase/ssr`'s createServerClient defaults `autoRefreshToken` to
+    `false` itself, unlike plain `@supabase/supabase-js`.
+  - Fix: both factories now pass `{ auth: { autoRefreshToken: false,
+    persistSession: false, detectSessionInUrl: false } }`. Neither
+    client ever legitimately has a session to refresh (public.ts is
+    always anonymous; admin.ts is a service-role key), so this is pure
+    correctness with zero behavior change to any actual query.
+  - Verified directly, not just by reasoning about the library source: a
+    standalone script (utils/supabase/{public,admin}.ts's own doc
+    comments summarize this) intercepted `global.setInterval` and
+    constructed 5 clients the old way (5 setInterval calls — one leaked
+    ticker per client, permanently) followed by 5 more the fixed way (0
+    additional setInterval calls). This is conclusive, not inferred.
+  - Committed as `fix(memory): disable Supabase auto-refresh ticker on
+    server-only clients, closing the real Render OOM leak` and pushed to
+    `origin/main`.
+
+[8.3 — What this means for every earlier "not a leak" claim in this file]
+  - Section 1's Context paragraph, Mission 1 / Step 1.1's findings, and
+    the 2026-09-16 dossier's own diagnosis should all now be read as
+    SUPERSEDED regarding "no leak exists" — they were right that no
+    *cache* was unbounded (that part holds), but wrong about there being
+    no leak at all. There was one, just not in the caching layer anyone
+    was looking at.
+  - STANDING LESSON for future sessions: a heap-usage log window of a
+    few hours (or a few crash-to-crash cycles) is not enough to
+    distinguish "plateaus near a ceiling" from "climbs slowly and
+    crashes later" — both look identical in a short window. Don't
+    declare "not a leak" from a short observation; wait for (or ask the
+    user for) a log spanning multiple full climb-to-crash cycles, the
+    way this session's evidence finally provided.
+  - This should also reframe how much weight to give any future
+    `NODE_OPTIONS`-ceiling-raising fix: raising the ceiling is a
+    legitimate mitigation for genuine headroom problems, but it also
+    perfectly disguises a slow leak as "fixed" for a while (exactly what
+    happened here) — a future recurrence after a ceiling raise should be
+    treated as evidence FOR a leak, not against one.
+
 ================================================================================
 END OF DOSSIER
 ================================================================================
