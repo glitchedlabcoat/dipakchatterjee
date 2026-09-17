@@ -75,6 +75,11 @@ jobs:
           # payload or inject into the request.
           COMMIT_TITLE=$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)
 
+          # Discord hard-rejects any embed field whose value exceeds 1024
+          # characters (a 400, which curl -f then reports as exit 22) —
+          # this repo's commit messages routinely run longer than that.
+          # Every other field here is short/structured and in no danger
+          # of hitting that limit, so only "Full message" needs it.
           PAYLOAD=$(jq -n \
             --arg status "$STATUS_TEXT" \
             --arg color "$COLOR" \
@@ -98,7 +103,7 @@ jobs:
                   { name: "Branch", value: $branch, inline: true },
                   { name: "Commit", value: ("[" + $sha + "](" + $commit_url + ")"), inline: true },
                   { name: "Build Source", value: $build_source, inline: true },
-                  { name: "Full message", value: $message }
+                  { name: "Full message", value: (if ($message | length) > 1024 then ($message[0:1023] + "…") else $message end) }
                 ],
                 footer: { text: "View the run" }
               }]
