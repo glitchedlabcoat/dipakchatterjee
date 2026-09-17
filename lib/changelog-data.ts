@@ -8,10 +8,12 @@
 // prose can't be mechanically turned into something a non-technical admin
 // would want to read: every entry here pairs the same underlying change
 // with a `simple` (plain English, "what changed and how to use it") and an
-// `advanced` (technical: root cause, files touched) side, so the dashboard
-// can toggle between them instantly with no re-fetch. `advanced.filesChanged`
-// mirrors CHANGELOG.md's own "Files Changed"/"Files Edited" list for that
-// version. Newest first. Dates are the version's actual ship date.
+// `advanced` (technical: root cause, per-task files touched) side, so the
+// dashboard can toggle between them instantly with no re-fetch. Each
+// `advanced.changes[]` item carries its own optional `files` list — the
+// specific file(s) that one task touched — rather than one flat
+// all-files-at-the-bottom list, so a reader can see what changed next to
+// why. Newest first. Dates are the version's actual ship date.
 //
 // Adding a new entry: prepend it to CHANGELOG_ENTRIES (and add the matching
 // dated section to CHANGELOG.md/CHANGELOG.txt) — per the standing changelog
@@ -34,8 +36,7 @@ export interface ChangelogEntry {
   };
   advanced: {
     rootCause?: string;
-    changes: { type: ChangelogChangeType; text: string }[];
-    filesChanged: string[];
+    changes: { type: ChangelogChangeType; text: string; files?: string[] }[];
   };
 }
 
@@ -62,34 +63,59 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       rootCause:
         "User-reported hypothesis was that in-memory caching (kept for low egress) was accumulating and causing the exit-134 (V8 heap OOM) crashes. Three parallel Explore passes over the full repo found no unbounded cache anywhere: lib/rate-limit.ts's Map is capped at 5000 keys (FIFO eviction); every unstable_cache call site (6 total) caches only small Postgres row/aggregate data, never image/video bytes, behind Next's own already-bounded 50MB in-memory Data Cache LRU; no on-disk cache precedent exists in server runtime code. The prior session's own diagnosis (see the 2026-09-16 dossier) was a V8 heap-ceiling/headroom mismatch (~256MB auto-sized ceiling on a 512MB container), not a leak — confirmed unchanged by this session's audit. NODE_OPTIONS=--max-old-space-size=400 (documented in .env.example since 2026-09-16) is the actual fix and was confirmed already set on Render.",
       changes: [
-        { type: "changed", text: "next.config.ts: added an explicit cacheMaxMemorySize: 20MB (down from Next's implicit 50MB default) for the Data Cache, making the existing bound intentional rather than relying on an undocumented default." },
-        { type: "changed", text: "app/(site)/page.tsx: getHomepageSections()'s features/phases/organizations/cta_buttons queries — previously unpaginated — now carry the same .limit(200) safety-cap pattern already used on the admin posts/features list pages." },
-        { type: "added", text: "lib/changelog-data.ts: new structured changelog data source (version, date, simple + advanced content per entry) backing the new admin Changelogs tab." },
-        { type: "added", text: "app/admin/(protected)/changelogs/page.tsx + components/admin/ChangelogBrowser.tsx: new admin page — Date-then-Version navigation, an instant client-side Simple/Advanced toggle (useTransition, zero re-fetch, since all content for every entry is already in the client's initial props)." },
-        { type: "security", text: "Full re-audit of every app/api/*/route.ts and server action, NEXT_PUBLIC_* usage, and proxy.ts's CSP directive set: zero regressions from the 2026-09-15/09-16 baselines. No route/action lacks appropriate auth or validation; no secret is client-exposed; CSP matches the documented post-R2/post-Facebook-embed state." },
-        { type: "fixed", text: "RangeError: Invalid time value, root cause found: app/admin/(protected)/posts/actions.ts's published_at handling only truthy-checked the admin's datetime input before calling new Date(...).toISOString(), never validating it actually parsed. New lib/safe-date.ts (parseValidDate, plus safeDate/safeToISOString for future call sites) backs a proper guard there; PostForm.tsx's Zod schema gained a matching .refine() so an unparseable value fails as a normal form error instead of reaching the server. A full repo-wide audit of every date-formatting call site found no other one at genuine risk." },
-        { type: "changed", text: "ChangelogBrowser.tsx's date formatter and /admin/usage's istDateString() hardened as low-risk hygiene fixes surfaced by the same date audit (a hypothetical hand-typo'd changelog date, and a fragile toLocaleString()-round-trip pattern, respectively)." },
-        { type: "changed", text: "Removed the non-functional Meta App ID/App Secret fields from Settings > Media & Display (MetaOEmbedSettingsForm.tsx, integration-actions.ts deleted) — they wrote to integration_settings, whose schema migration was never actually applied to the live database, so saving always failed. The 3-tier Facebook embed fallback (XFBML → iframe → outbound link) never depended on these credentials." },
-        { type: "security", text: "Re-confirmed ENABLE_ADMIN_2FA left unset safely skips the OTP challenge (strict === \"true\" check) rather than dead-ending a login." },
-      ],
-      filesChanged: [
-        "next.config.ts",
-        "app/(site)/page.tsx",
-        "lib/changelog-data.ts (new)",
-        "app/admin/(protected)/changelogs/page.tsx (new)",
-        "components/admin/ChangelogBrowser.tsx (new)",
-        "components/admin/AdminSidebar.tsx",
-        "CHANGELOG.md",
-        "CHANGELOG.txt",
-        "lib/safe-date.ts (new)",
-        "app/admin/(protected)/posts/actions.ts",
-        "app/admin/(protected)/posts/PostForm.tsx",
-        "app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (removed)",
-        "app/admin/(protected)/settings/integration-actions.ts (removed)",
-        "app/admin/(protected)/settings/page.tsx",
-        "lib/settings-nav.ts",
-        "components/embeds/FacebookEmbed.tsx",
-        "app/admin/(protected)/usage/page.tsx",
+        {
+          type: "changed",
+          text: "next.config.ts: added an explicit cacheMaxMemorySize: 20MB (down from Next's implicit 50MB default) for the Data Cache, making the existing bound intentional rather than relying on an undocumented default.",
+          files: ["next.config.ts"],
+        },
+        {
+          type: "changed",
+          text: "app/(site)/page.tsx: getHomepageSections()'s features/phases/organizations/cta_buttons queries — previously unpaginated — now carry the same .limit(200) safety-cap pattern already used on the admin posts/features list pages.",
+          files: ["app/(site)/page.tsx"],
+        },
+        {
+          type: "added",
+          text: "lib/changelog-data.ts: new structured changelog data source (version, date, simple + advanced content per entry) backing the new admin Changelogs tab.",
+          files: ["lib/changelog-data.ts (new)"],
+        },
+        {
+          type: "added",
+          text: "app/admin/(protected)/changelogs/page.tsx + components/admin/ChangelogBrowser.tsx: new admin page — Date-then-Version navigation, an instant client-side Simple/Advanced toggle (useTransition, zero re-fetch, since all content for every entry is already in the client's initial props).",
+          files: [
+            "app/admin/(protected)/changelogs/page.tsx (new)",
+            "components/admin/ChangelogBrowser.tsx (new)",
+            "components/admin/AdminSidebar.tsx",
+          ],
+        },
+        {
+          type: "security",
+          text: "Full re-audit of every app/api/*/route.ts and server action, NEXT_PUBLIC_* usage, and proxy.ts's CSP directive set: zero regressions from the 2026-09-15/09-16 baselines. No route/action lacks appropriate auth or validation; no secret is client-exposed; CSP matches the documented post-R2/post-Facebook-embed state.",
+        },
+        {
+          type: "fixed",
+          text: "RangeError: Invalid time value, root cause found: app/admin/(protected)/posts/actions.ts's published_at handling only truthy-checked the admin's datetime input before calling new Date(...).toISOString(), never validating it actually parsed. New lib/safe-date.ts (parseValidDate, plus safeDate/safeToISOString for future call sites) backs a proper guard there; PostForm.tsx's Zod schema gained a matching .refine() so an unparseable value fails as a normal form error instead of reaching the server. A full repo-wide audit of every date-formatting call site found no other one at genuine risk.",
+          files: ["lib/safe-date.ts (new)", "app/admin/(protected)/posts/actions.ts", "app/admin/(protected)/posts/PostForm.tsx"],
+        },
+        {
+          type: "changed",
+          text: "ChangelogBrowser.tsx's date formatter and /admin/usage's istDateString() hardened as low-risk hygiene fixes surfaced by the same date audit (a hypothetical hand-typo'd changelog date, and a fragile toLocaleString()-round-trip pattern, respectively).",
+          files: ["components/admin/ChangelogBrowser.tsx", "app/admin/(protected)/usage/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Removed the non-functional Meta App ID/App Secret fields from Settings > Media & Display (MetaOEmbedSettingsForm.tsx, integration-actions.ts deleted) — they wrote to integration_settings, whose schema migration was never actually applied to the live database, so saving always failed. The 3-tier Facebook embed fallback (XFBML → iframe → outbound link) never depended on these credentials.",
+          files: [
+            "app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (removed)",
+            "app/admin/(protected)/settings/integration-actions.ts (removed)",
+            "app/admin/(protected)/settings/page.tsx",
+            "lib/settings-nav.ts",
+            "components/embeds/FacebookEmbed.tsx",
+          ],
+        },
+        {
+          type: "security",
+          text: "Re-confirmed ENABLE_ADMIN_2FA left unset safely skips the OTP challenge (strict === \"true\" check) rather than dead-ending a login.",
+        },
       ],
     },
   },
@@ -109,34 +135,55 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       rootCause:
         "Render production crashed repeatedly with exit status 134 (confirmed V8 'JavaScript heap out of memory' from the crash log, not a native-module or assertion failure). The container's auto-sized V8 heap ceiling (~256MB) left almost no headroom over the app's steady-state footprint, and app/api/admin/upload/route.ts fully buffered uploads in memory with a 100MB video cap — a single admin video upload could transiently double-buffer ~200MB on top of that baseline.",
       changes: [
-        { type: "fixed", text: "MAX_VIDEO_BYTES reduced 100MB → 25MB; experimental.serverActions.bodySizeLimit reduced 30mb → 1mb (a leftover from the pre-R2 complaint upload path, now dead)." },
-        { type: "added", text: "instrumentation.ts/instrumentation-node.ts: periodic process.memoryUsage() logging (15 min) and onRequestError logging with digests, so a future crash leaves a trace." },
-        { type: "added", text: "AdminNavPendingContext (shared useTransition pending state): every sidebar/Settings-tab link shows a top progress bar and disables itself the instant it's clicked, so rage-clicking can't stack concurrent server requests." },
-        { type: "added", text: "app/admin/(protected)/loading.tsx: shared skeleton fallback for a page's own data fetch (doesn't cover the shared layout's auth fetch)." },
-        { type: "changed", text: "/admin/settings now fetches only the active tab's data instead of unconditionally querying all 9 tables on every load." },
-        { type: "changed", text: "Admin layout/Overview/Settings share one react cache()-wrapped auth/profile lookup (lib/admin-auth.ts) instead of 3 independent Supabase Auth calls per navigation." },
-        { type: "changed", text: "posts/features/phases admin list queries capped at .limit(200) — a safety cap, not real pagination." },
-        { type: "changed", text: "The 6 heaviest @dnd-kit Settings managers now load via next/dynamic, so /admin/settings' client bundle only pays for whichever tab is open." },
-        { type: "changed", text: "SessionTimer.tsx no longer resets on scroll/touchstart — only pointerdown/keydown keeps the 15-minute session alive." },
-        { type: "security", text: "Dedicated review of this diff: no high/medium findings. Repo-wide dead-code/dependency audit: eslint clean, no unused deps/files/assets." },
-      ],
-      filesChanged: [
-        ".env.example",
-        "app/admin/(protected)/features/page.tsx",
-        "app/admin/(protected)/layout.tsx",
-        "app/admin/(protected)/loading.tsx (new)",
-        "app/admin/(protected)/page.tsx",
-        "app/admin/(protected)/posts/page.tsx",
-        "app/admin/(protected)/settings/page.tsx",
-        "app/api/admin/upload/route.ts",
-        "components/admin/AdminNavPendingContext.tsx (new)",
-        "components/admin/AdminSidebar.tsx",
-        "components/admin/AdminTopProgressBar.tsx (new)",
-        "components/admin/SessionTimer.tsx",
-        "instrumentation.ts (new)",
-        "instrumentation-node.ts (new)",
-        "lib/admin-auth.ts (new)",
-        "next.config.ts",
+        {
+          type: "fixed",
+          text: "MAX_VIDEO_BYTES reduced 100MB → 25MB; experimental.serverActions.bodySizeLimit reduced 30mb → 1mb (a leftover from the pre-R2 complaint upload path, now dead).",
+          files: ["app/api/admin/upload/route.ts", "next.config.ts", ".env.example"],
+        },
+        {
+          type: "added",
+          text: "instrumentation.ts/instrumentation-node.ts: periodic process.memoryUsage() logging (15 min) and onRequestError logging with digests, so a future crash leaves a trace.",
+          files: ["instrumentation.ts (new)", "instrumentation-node.ts (new)"],
+        },
+        {
+          type: "added",
+          text: "AdminNavPendingContext (shared useTransition pending state): every sidebar/Settings-tab link shows a top progress bar and disables itself the instant it's clicked, so rage-clicking can't stack concurrent server requests.",
+          files: ["components/admin/AdminNavPendingContext.tsx (new)", "components/admin/AdminTopProgressBar.tsx (new)", "components/admin/AdminSidebar.tsx"],
+        },
+        {
+          type: "added",
+          text: "app/admin/(protected)/loading.tsx: shared skeleton fallback for a page's own data fetch (doesn't cover the shared layout's auth fetch).",
+          files: ["app/admin/(protected)/loading.tsx (new)"],
+        },
+        {
+          type: "changed",
+          text: "/admin/settings now fetches only the active tab's data instead of unconditionally querying all 9 tables on every load.",
+          files: ["app/admin/(protected)/settings/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Admin layout/Overview/Settings share one react cache()-wrapped auth/profile lookup (lib/admin-auth.ts) instead of 3 independent Supabase Auth calls per navigation.",
+          files: ["lib/admin-auth.ts (new)", "app/admin/(protected)/layout.tsx", "app/admin/(protected)/page.tsx", "app/admin/(protected)/settings/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "posts/features/phases admin list queries capped at .limit(200) — a safety cap, not real pagination.",
+          files: ["app/admin/(protected)/posts/page.tsx", "app/admin/(protected)/features/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "The 6 heaviest @dnd-kit Settings managers now load via next/dynamic, so /admin/settings' client bundle only pays for whichever tab is open.",
+          files: ["app/admin/(protected)/settings/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "SessionTimer.tsx no longer resets on scroll/touchstart — only pointerdown/keydown keeps the 15-minute session alive.",
+          files: ["components/admin/SessionTimer.tsx"],
+        },
+        {
+          type: "security",
+          text: "Dedicated review of this diff: no high/medium findings. Repo-wide dead-code/dependency audit: eslint clean, no unused deps/files/assets.",
+        },
       ],
     },
   },
@@ -152,11 +199,21 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       rootCause:
         "The Content-Security-Policy's img-src/media-src directives in proxy.ts were never updated to include the R2 host after v1.13.0 moved every media URL in the database to R2 — every image/video request was blocked by CSP enforcement, not missing or 404ing. next.config.ts's remotePatterns was already correct but inert (media renders as plain <img>/<video>, not next/image). Verified by diffing the live CSP header against real rendered <img src> values.",
       changes: [
-        { type: "fixed", text: "Added R2_PUBLIC_DOMAIN and the raw {account}.r2.cloudflarestorage.com endpoint to img-src/media-src, and the latter to connect-src too (needed for the complaint form's direct-to-R2 presigned upload)." },
-        { type: "security", text: "Full audit of the R2/complaints surface added in v1.13.0: no NEXT_PUBLIC_-prefixed secrets, no client component imports a server-only R2/service-role module." },
-        { type: "security", text: "/api/admin/upload's DELETE handler now validates the key's folder prefix before calling deleteFromR2, instead of trusting any key an authenticated admin's browser sends." },
+        {
+          type: "fixed",
+          text: "Added R2_PUBLIC_DOMAIN and the raw {account}.r2.cloudflarestorage.com endpoint to img-src/media-src, and the latter to connect-src too (needed for the complaint form's direct-to-R2 presigned upload).",
+          files: ["proxy.ts"],
+        },
+        {
+          type: "security",
+          text: "Full audit of the R2/complaints surface added in v1.13.0: no NEXT_PUBLIC_-prefixed secrets, no client component imports a server-only R2/service-role module.",
+        },
+        {
+          type: "security",
+          text: "/api/admin/upload's DELETE handler now validates the key's folder prefix before calling deleteFromR2, instead of trusting any key an authenticated admin's browser sends.",
+          files: ["app/api/admin/upload/route.ts"],
+        },
       ],
-      filesChanged: ["app/api/admin/upload/route.ts", "proxy.ts"],
     },
   },
   {
@@ -173,31 +230,70 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Cloudflare R2 as primary object storage for admin media, via a server-side upload proxy (app/api/admin/upload/route.ts) — a browser never holds R2's signing key directly." },
-        { type: "added", text: "One-off migration (scripts/migrate-supabase-to-r2.ts, npm run migrate:r2) copied every Supabase Storage file to R2 and rewrote every stored URL. Ran successfully: 402 files transferred, 0 failed, 390 DB rows updated. Nothing deleted from Supabase Storage." },
-        { type: "added", text: "Citizen complaint attachments move to R2 through a separate, private bucket (R2_COMPLAINT_BUCKET_NAME) reached only via presigned PUT/GET URLs — the admin-media bucket's public-access toggle is bucket-wide, so mixing private submissions into it would have exposed them." },
-        { type: "added", text: "Client-side WebP compression and WebCodecs video re-encoding for complaint uploads — no file bytes pass through the Next.js server." },
-        { type: "added", text: "Usage Metrics dashboard (/admin/usage, Simple/Advanced) replacing Egress Monitor — real R2 storage size/object counts alongside Supabase egress telemetry, with optional live Cloudflare operation counts." },
-        { type: "changed", text: "Storage deletes route to R2 or legacy Supabase Storage per-object based on key shape, since both backends coexist until old buckets are cleaned up by hand." },
-        { type: "fixed", text: "Migration script's header-corruption bug: .env.local's CRLF line endings leaked a stray \\r into R2's signed Authorization header. Fixed by sanitizing every parsed value." },
-        { type: "security", text: "Complaint attachments deliberately kept out of the public R2 bucket to avoid exposing private citizen submissions." },
-      ],
-      filesChanged: [
-        ".env.example", "app/(site)/complaints/actions.ts", "app/admin/(protected)/complaints/actions.ts",
-        "app/admin/(protected)/complaints/page.tsx", "app/admin/(protected)/egress/page.tsx",
-        "app/admin/(protected)/features/[id]/page.tsx", "app/admin/(protected)/features/actions.ts",
-        "app/admin/(protected)/phases/PhasePhotosManager.tsx", "app/admin/(protected)/phases/actions.ts",
-        "app/admin/(protected)/posts/PostThumbnailUploader.tsx", "app/admin/(protected)/posts/[id]/page.tsx",
-        "app/admin/(protected)/posts/actions.ts", "app/admin/(protected)/settings/OrganizationsManager.tsx",
-        "app/admin/(protected)/settings/SiteImageUploader.tsx", "app/admin/(protected)/settings/actions.ts",
-        "app/admin/(protected)/usage/page.tsx (new)", "app/api/admin/upload/route.ts (new)",
-        "app/api/complaints/upload-url/route.ts (new)", "components/admin/AdminSidebar.tsx",
-        "components/admin/MediaManager.tsx", "components/complaints/ComplaintForm.tsx",
-        "components/complaints/ComplaintMediaPicker.tsx (new)", "lib/cloudflare-analytics.ts (new)",
-        "lib/complaint-storage-delete.ts (new)", "lib/complaints-cleanup.ts", "lib/media-upload-client.ts (new)",
-        "lib/r2-complaints.ts (new)", "lib/r2-usage.ts (new)", "lib/r2.ts (new)", "lib/storage-delete.ts (new)",
-        "lib/video-transcode.ts (new)", "next.config.ts", "package.json / package-lock.json",
-        "scripts/migrate-supabase-to-r2.ts (new)",
+        {
+          type: "added",
+          text: "Cloudflare R2 as primary object storage for admin media, via a server-side upload proxy (app/api/admin/upload/route.ts) — a browser never holds R2's signing key directly. Every existing upload call site (Features, Phases, Posts, Settings image pickers) was rewired to go through it.",
+          files: [
+            "app/api/admin/upload/route.ts (new)",
+            "lib/r2.ts (new)",
+            "lib/media-upload-client.ts (new)",
+            "components/admin/MediaManager.tsx",
+            "app/admin/(protected)/features/[id]/page.tsx",
+            "app/admin/(protected)/features/actions.ts",
+            "app/admin/(protected)/phases/PhasePhotosManager.tsx",
+            "app/admin/(protected)/phases/actions.ts",
+            "app/admin/(protected)/posts/PostThumbnailUploader.tsx",
+            "app/admin/(protected)/posts/[id]/page.tsx",
+            "app/admin/(protected)/posts/actions.ts",
+            "app/admin/(protected)/settings/OrganizationsManager.tsx",
+            "app/admin/(protected)/settings/SiteImageUploader.tsx",
+            "app/admin/(protected)/settings/actions.ts",
+            "next.config.ts",
+          ],
+        },
+        {
+          type: "added",
+          text: "One-off migration (scripts/migrate-supabase-to-r2.ts, npm run migrate:r2) copied every Supabase Storage file to R2 and rewrote every stored URL. Ran successfully: 402 files transferred, 0 failed, 390 DB rows updated. Nothing deleted from Supabase Storage.",
+          files: ["scripts/migrate-supabase-to-r2.ts (new)", "package.json / package-lock.json"],
+        },
+        {
+          type: "added",
+          text: "Citizen complaint attachments move to R2 through a separate, private bucket (R2_COMPLAINT_BUCKET_NAME) reached only via presigned PUT/GET URLs — the admin-media bucket's public-access toggle is bucket-wide, so mixing private submissions into it would have exposed them.",
+          files: [
+            "lib/r2-complaints.ts (new)",
+            "app/api/complaints/upload-url/route.ts (new)",
+            "app/(site)/complaints/actions.ts",
+            "app/admin/(protected)/complaints/actions.ts",
+            "app/admin/(protected)/complaints/page.tsx",
+            "lib/complaints-cleanup.ts",
+            ".env.example",
+          ],
+        },
+        {
+          type: "added",
+          text: "Client-side WebP compression and WebCodecs video re-encoding for complaint uploads — no file bytes pass through the Next.js server.",
+          files: ["lib/video-transcode.ts (new)", "components/complaints/ComplaintMediaPicker.tsx (new)", "components/complaints/ComplaintForm.tsx"],
+        },
+        {
+          type: "added",
+          text: "Usage Metrics dashboard (/admin/usage, Simple/Advanced) replacing Egress Monitor — real R2 storage size/object counts alongside Supabase egress telemetry, with optional live Cloudflare operation counts.",
+          files: ["app/admin/(protected)/usage/page.tsx (new)", "lib/r2-usage.ts (new)", "lib/cloudflare-analytics.ts (new)", "app/admin/(protected)/egress/page.tsx (new)", "components/admin/AdminSidebar.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Storage deletes route to R2 or legacy Supabase Storage per-object based on key shape, since both backends coexist until old buckets are cleaned up by hand.",
+          files: ["lib/storage-delete.ts (new)", "lib/complaint-storage-delete.ts (new)"],
+        },
+        {
+          type: "fixed",
+          text: "Migration script's header-corruption bug: .env.local's CRLF line endings leaked a stray \\r into R2's signed Authorization header. Fixed by sanitizing every parsed value.",
+          files: ["scripts/migrate-supabase-to-r2.ts (new)"],
+        },
+        {
+          type: "security",
+          text: "Complaint attachments deliberately kept out of the public R2 bucket to avoid exposing private citizen submissions.",
+          files: ["lib/r2-complaints.ts (new)"],
+        },
       ],
     },
   },
@@ -216,20 +312,44 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Meta oEmbed API Settings card: App ID/Secret with a Test Connection button against Meta's Graph API. Credentials live in a new integration_settings table (admin-only RLS), not site_settings (public-readable via the anon key)." },
-        { type: "added", text: "Real-time embed validation in the post editor's link rows; Facebook/Instagram links get a Public-source-post note." },
-        { type: "added", text: "Load-failure fallback on PostEmbed: a blocked/failed iframe renders a \"Watch on Facebook/YouTube\" card instead of silently hiding." },
-        { type: "added", text: "search_tags (site_settings) + tag manager UI, feeding metadata.keywords and a new JSON-LD @graph (WebSite + Person)." },
-        { type: "changed", text: "PasswordInput's required attribute made opt-out, so it's reusable for an optional secret field." },
-        { type: "security", text: "Meta App Secret isolated in the new admin-only integration_settings table rather than the public-readable site_settings row." },
-      ],
-      filesChanged: [
-        "app/(site)/layout.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/posts/PostForm.tsx",
-        "app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (new)", "app/admin/(protected)/settings/SeoSnippetForm.tsx",
-        "app/admin/(protected)/settings/actions.ts", "app/admin/(protected)/settings/integration-actions.ts (new)",
-        "app/admin/(protected)/settings/page.tsx", "components/admin/PasswordInput.tsx", "components/posts/PostEmbed.tsx",
-        "lib/settings-nav.ts", "supabase/migrations/20260929000000_integration_settings.sql (new)",
-        "supabase/migrations/20260929010000_search_tags.sql (new)", "types/database.types.ts", "types/domain.ts",
+        {
+          type: "added",
+          text: "Meta oEmbed API Settings card: App ID/Secret with a Test Connection button against Meta's Graph API. Credentials live in a new integration_settings table (admin-only RLS), not site_settings (public-readable via the anon key).",
+          files: [
+            "app/admin/(protected)/settings/MetaOEmbedSettingsForm.tsx (new)",
+            "app/admin/(protected)/settings/integration-actions.ts (new)",
+            "app/admin/(protected)/settings/actions.ts",
+            "app/admin/(protected)/settings/page.tsx",
+            "lib/settings-nav.ts",
+            "supabase/migrations/20260929000000_integration_settings.sql (new)",
+            "types/database.types.ts",
+          ],
+        },
+        {
+          type: "added",
+          text: "Real-time embed validation in the post editor's link rows; Facebook/Instagram links get a Public-source-post note.",
+          files: ["app/admin/(protected)/posts/PostForm.tsx"],
+        },
+        {
+          type: "added",
+          text: "Load-failure fallback on PostEmbed: a blocked/failed iframe renders a \"Watch on Facebook/YouTube\" card instead of silently hiding.",
+          files: ["components/posts/PostEmbed.tsx"],
+        },
+        {
+          type: "added",
+          text: "search_tags (site_settings) + tag manager UI, feeding metadata.keywords and a new JSON-LD @graph (WebSite + Person).",
+          files: ["app/(site)/layout.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/settings/SeoSnippetForm.tsx", "supabase/migrations/20260929010000_search_tags.sql (new)", "types/domain.ts"],
+        },
+        {
+          type: "changed",
+          text: "PasswordInput's required attribute made opt-out, so it's reusable for an optional secret field.",
+          files: ["components/admin/PasswordInput.tsx"],
+        },
+        {
+          type: "security",
+          text: "Meta App Secret isolated in the new admin-only integration_settings table rather than the public-readable site_settings row.",
+          files: ["supabase/migrations/20260929000000_integration_settings.sql (new)"],
+        },
       ],
     },
   },
@@ -248,20 +368,37 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Google Search Snippet editor (meta title + description, live counter, Google-style preview), wired into app/(site)/layout.tsx's title/description/OpenGraph metadata." },
-        { type: "added", text: "Granular cache tags (TAG_SETTINGS, TAG_POSTS_LIST, TAG_POST_ITEM(id), TAG_SECTIONS) via new shared lib/queries/{settings,posts}.ts reads, replacing one coarse PUBLIC_CACHE_TAG." },
-        { type: "changed", text: "Settings sidebar entry converted into a collapsible sub-menu; page header/tab title now driven by the active tab; dropped the redundant in-page tab bar." },
-        { type: "changed", text: "Settings/posts admin actions now call targeted revalidateTag() instead of a coarse flush." },
-        { type: "fixed", text: "/complaints was querying Supabase directly on every request instead of going through the cache-first architecture every other public page used." },
-      ],
-      filesChanged: [
-        "app/(site)/complaints/page.tsx", "app/(site)/layout.tsx", "app/(site)/notable-works/page.tsx",
-        "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/posts/actions.ts",
-        "app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (removed)", "app/admin/(protected)/settings/SeoSnippetForm.tsx (new)",
-        "app/admin/(protected)/settings/SettingsTabs.tsx", "app/admin/(protected)/settings/actions.ts",
-        "app/admin/(protected)/settings/page.tsx", "components/admin/AdminSidebar.tsx", "lib/cache.ts",
-        "lib/queries/posts.ts (new)", "lib/queries/settings.ts (new)", "lib/settings-nav.ts (new)",
-        "supabase/migrations/20260928000000_meta_description.sql (new)", "types/database.types.ts",
+        {
+          type: "added",
+          text: "Google Search Snippet editor (meta title + description, live counter, Google-style preview), wired into app/(site)/layout.tsx's title/description/OpenGraph metadata.",
+          files: [
+            "app/admin/(protected)/settings/SeoSnippetForm.tsx (new)",
+            "app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (removed)",
+            "app/(site)/layout.tsx",
+            "supabase/migrations/20260928000000_meta_description.sql (new)",
+            "types/database.types.ts",
+          ],
+        },
+        {
+          type: "added",
+          text: "Granular cache tags (TAG_SETTINGS, TAG_POSTS_LIST, TAG_POST_ITEM(id), TAG_SECTIONS) via new shared lib/queries/{settings,posts}.ts reads, replacing one coarse PUBLIC_CACHE_TAG.",
+          files: ["lib/queries/posts.ts (new)", "lib/queries/settings.ts (new)", "lib/cache.ts", "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/(site)/notable-works/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Settings sidebar entry converted into a collapsible sub-menu; page header/tab title now driven by the active tab; dropped the redundant in-page tab bar.",
+          files: ["lib/settings-nav.ts (new)", "components/admin/AdminSidebar.tsx", "app/admin/(protected)/settings/SettingsTabs.tsx", "app/admin/(protected)/settings/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Settings/posts admin actions now call targeted revalidateTag() instead of a coarse flush.",
+          files: ["app/admin/(protected)/settings/actions.ts", "app/admin/(protected)/posts/actions.ts"],
+        },
+        {
+          type: "fixed",
+          text: "/complaints was querying Supabase directly on every request instead of going through the cache-first architecture every other public page used.",
+          files: ["app/(site)/complaints/page.tsx"],
+        },
       ],
     },
   },
@@ -279,22 +416,50 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "app/icon.tsx + public/favicon.ico (\"DC\" mark) as the sitewide favicon." },
-        { type: "added", text: "site_settings.site_title driving a sitewide <title> template via generateMetadata, with a dedicated Browser Tab Settings admin card." },
-        { type: "added", text: "posts.show_published_time, letting the editor toggle whether a post's published time renders publicly." },
-        { type: "added", text: "Word-boundary truncation for long post titles in the browser tab." },
-        { type: "changed", text: "Dashboard layout uses h-dvh + independent scroll regions instead of body scroll, fixing the admin sidebar scrolling away on long pages." },
-        { type: "fixed", text: "The public site_settings query was breaking the entire header whenever a not-yet-migrated column was referenced explicitly — switched to select(\"*\") for resilience." },
-      ],
-      filesChanged: [
-        "app/(site)/complaints/page.tsx", "app/(site)/layout.tsx", "app/(site)/notable-works/page.tsx",
-        "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/layout.tsx", "app/admin/(protected)/posts/PostForm.tsx",
-        "app/admin/(protected)/posts/actions.ts", "app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (new)",
-        "app/admin/(protected)/settings/actions.ts", "app/admin/(protected)/settings/page.tsx", "app/icon.tsx (new)",
-        "components/admin/AdminSidebar.tsx", "components/posts/PostsFeed.tsx", "components/site/SiteHeader.tsx",
-        "lib/post-date.ts (new)", "lib/truncate-title.ts (new)", "public/favicon.ico (new)",
-        "supabase/migrations/20260926000000_site_title.sql (new)", "supabase/migrations/20260927000000_post_optional_time.sql (new)",
-        "types/database.types.ts",
+        {
+          type: "added",
+          text: "app/icon.tsx + public/favicon.ico (\"DC\" mark) as the sitewide favicon.",
+          files: ["app/icon.tsx (new)", "public/favicon.ico (new)"],
+        },
+        {
+          type: "added",
+          text: "site_settings.site_title driving a sitewide <title> template via generateMetadata, with a dedicated Browser Tab Settings admin card.",
+          files: [
+            "app/admin/(protected)/settings/BrowserTabSettingsForm.tsx (new)",
+            "app/admin/(protected)/settings/actions.ts",
+            "app/admin/(protected)/settings/page.tsx",
+            "app/(site)/layout.tsx",
+            "supabase/migrations/20260926000000_site_title.sql (new)",
+            "types/database.types.ts",
+          ],
+        },
+        {
+          type: "added",
+          text: "posts.show_published_time, letting the editor toggle whether a post's published time renders publicly.",
+          files: [
+            "app/admin/(protected)/posts/PostForm.tsx",
+            "app/admin/(protected)/posts/actions.ts",
+            "supabase/migrations/20260927000000_post_optional_time.sql (new)",
+            "lib/post-date.ts (new)",
+            "components/posts/PostsFeed.tsx",
+            "app/(site)/posts/[id]/page.tsx",
+          ],
+        },
+        {
+          type: "added",
+          text: "Word-boundary truncation for long post titles in the browser tab.",
+          files: ["lib/truncate-title.ts (new)", "components/site/SiteHeader.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Dashboard layout uses h-dvh + independent scroll regions instead of body scroll, fixing the admin sidebar scrolling away on long pages.",
+          files: ["app/admin/(protected)/layout.tsx", "components/admin/AdminSidebar.tsx"],
+        },
+        {
+          type: "fixed",
+          text: "The public site_settings query was breaking the entire header whenever a not-yet-migrated column was referenced explicitly — switched to select(\"*\") for resilience.",
+          files: ["app/(site)/complaints/page.tsx", "app/(site)/notable-works/page.tsx"],
+        },
       ],
     },
   },
@@ -308,9 +473,12 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "app/sitemap.ts and app/robots.ts using the App Router metadata route convention, pointing crawlers to core public pages while excluding /admin." },
+        {
+          type: "added",
+          text: "app/sitemap.ts and app/robots.ts using the App Router metadata route convention, pointing crawlers to core public pages while excluding /admin.",
+          files: ["app/robots.ts (new)", "app/sitemap.ts (new)"],
+        },
       ],
-      filesChanged: ["app/robots.ts (new)", "app/sitemap.ts (new)"],
     },
   },
   {
@@ -323,15 +491,21 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Egress & Cache Efficiency Monitor at /admin/egress: new cache_metrics table + atomic record_cache_event() upsert function (RLS: admin-only SELECT, no direct write policy — every write goes through the SECURITY DEFINER function). Reduction-rate banner, baseline-vs-actual-vs-saved comparison, per-route hit/miss/bandwidth table, Today/7-day/30-day filter." },
-        { type: "added", text: "Hit/miss telemetry wired into lib/cache.ts's createTrackedCache() (drop-in unstable_cache replacement), used at all 5 public data-fetch call sites. Hit vs. miss detected via a monotonic per-route counter stamped into the cached value itself — confirmed race-free (a shared mutable flag would not have been) by checking recorded rows against known request counts on a running production server." },
-        { type: "changed", text: "Build-source detection (RENDER/CI/GITHUB_ACTIONS) added to both Discord notification paths, each labeling its embed Remote or Local." },
-      ],
-      filesChanged: [
-        "supabase/migrations/20260925000000_cache_metrics.sql (new)", "types/database.types.ts", "types/domain.ts",
-        "lib/cache.ts", "app/(site)/layout.tsx", "app/(site)/page.tsx", "app/(site)/notable-works/page.tsx",
-        "app/(site)/posts/[id]/page.tsx", "app/(site)/phases/[id]/page.tsx", "app/admin/(protected)/egress/page.tsx (new)",
-        "components/admin/AdminSidebar.tsx", "scripts/notify-discord.js", ".github/workflows/discord-notify.yml",
+        {
+          type: "added",
+          text: "Egress & Cache Efficiency Monitor at /admin/egress: new cache_metrics table + atomic record_cache_event() upsert function (RLS: admin-only SELECT, no direct write policy — every write goes through the SECURITY DEFINER function). Reduction-rate banner, baseline-vs-actual-vs-saved comparison, per-route hit/miss/bandwidth table, Today/7-day/30-day filter.",
+          files: ["supabase/migrations/20260925000000_cache_metrics.sql (new)", "types/database.types.ts", "types/domain.ts", "app/admin/(protected)/egress/page.tsx (new)", "components/admin/AdminSidebar.tsx"],
+        },
+        {
+          type: "added",
+          text: "Hit/miss telemetry wired into lib/cache.ts's createTrackedCache() (drop-in unstable_cache replacement), used at all 5 public data-fetch call sites. Hit vs. miss detected via a monotonic per-route counter stamped into the cached value itself — confirmed race-free (a shared mutable flag would not have been) by checking recorded rows against known request counts on a running production server.",
+          files: ["lib/cache.ts", "app/(site)/layout.tsx", "app/(site)/page.tsx", "app/(site)/notable-works/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/(site)/phases/[id]/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Build-source detection (RENDER/CI/GITHUB_ACTIONS) added to both Discord notification paths, each labeling its embed Remote or Local.",
+          files: ["scripts/notify-discord.js", ".github/workflows/discord-notify.yml"],
+        },
       ],
     },
   },
@@ -347,9 +521,12 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
       rootCause:
         "GitHub Actions' npm run build step has no NEXT_PUBLIC_SUPABASE_URL/ANON_KEY; once app/(site)/layout.tsx switched to the cookie-free public Supabase client, Next's build-time static-eligibility probe had no cookies() call left to trip its dynamic-bail signal, so it fully executed getSiteChrome() while probing /complaints and hit the missing env var. Passed locally only because .env.local happens to supply that value.",
       changes: [
-        { type: "fixed", text: "Added export const dynamic = \"force-dynamic\" to app/(site)/layout.tsx so Next skips the static probe for every page under (site), matching reality (the CSP nonce already prevents static serving). Verified by building with .env.local removed entirely." },
+        {
+          type: "fixed",
+          text: "Added export const dynamic = \"force-dynamic\" to app/(site)/layout.tsx so Next skips the static probe for every page under (site), matching reality (the CSP nonce already prevents static serving). Verified by building with .env.local removed entirely.",
+          files: ["app/(site)/layout.tsx", "app/(site)/page.tsx"],
+        },
       ],
-      filesChanged: ["app/(site)/layout.tsx", "app/(site)/page.tsx", "CHANGELOG.txt", "CHANGELOG.md"],
     },
   },
   {
@@ -362,16 +539,27 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Public pages read through a new cookie-free public Supabase client, wrapped in unstable_cache(revalidate: 60, tags: ['public-content']) — verified: 5 back-to-back homepage requests produced only 1 actual database query." },
-        { type: "added", text: "revalidatePublicPages() for instant on-demand cache flush, wired into ~20 admin mutation call sites (arrangement, features, phases, posts, every Settings sub-area) so a dashboard save doesn't wait out the 60-second window." },
-        { type: "changed", text: "Supabase Storage upload cacheControl bumped from 1 hour to 30 days across all media types." },
-      ],
-      filesChanged: [
-        "lib/cache.ts (new)", "utils/supabase/public.ts (new)", "app/(site)/layout.tsx", "app/(site)/page.tsx",
-        "app/(site)/notable-works/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/(site)/phases/[id]/page.tsx",
-        "app/admin/(protected)/arrangement/actions.ts", "app/admin/(protected)/features/actions.ts",
-        "app/admin/(protected)/phases/actions.ts", "app/admin/(protected)/posts/actions.ts",
-        "app/admin/(protected)/settings/actions.ts", "next.config.ts",
+        {
+          type: "added",
+          text: "Public pages read through a new cookie-free public Supabase client, wrapped in unstable_cache(revalidate: 60, tags: ['public-content']) — verified: 5 back-to-back homepage requests produced only 1 actual database query.",
+          files: ["utils/supabase/public.ts (new)", "lib/cache.ts (new)", "app/(site)/layout.tsx", "app/(site)/page.tsx", "app/(site)/notable-works/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/(site)/phases/[id]/page.tsx"],
+        },
+        {
+          type: "added",
+          text: "revalidatePublicPages() for instant on-demand cache flush, wired into ~20 admin mutation call sites (arrangement, features, phases, posts, every Settings sub-area) so a dashboard save doesn't wait out the 60-second window.",
+          files: [
+            "app/admin/(protected)/arrangement/actions.ts",
+            "app/admin/(protected)/features/actions.ts",
+            "app/admin/(protected)/phases/actions.ts",
+            "app/admin/(protected)/posts/actions.ts",
+            "app/admin/(protected)/settings/actions.ts",
+          ],
+        },
+        {
+          type: "changed",
+          text: "Supabase Storage upload cacheControl bumped from 1 hour to 30 days across all media types.",
+          files: ["next.config.ts"],
+        },
       ],
     },
   },
@@ -389,20 +577,44 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "changed", text: "Converted all slideshow interval columns from integer to numeric(4,2), with step=\"0.1\" inputs, end to end." },
-        { type: "added", text: "Dedicated is_published toggle for Phases, defaulting to draft on creation." },
-        { type: "added", text: "Phase \"Read More\" page (/phases/[id]) with full narrative and uncapped photo gallery, each photo with caption and an optional per-photo fact/detail field." },
-        { type: "changed", text: "Conditional Phase media rendering: auto-advancing slideshow when interval > 0, otherwise a static grid capped at a configurable max_display_images." },
-      ],
-      filesChanged: [
-        "supabase/migrations/20260924000000_phases_and_timer_enhancements.sql", "types/database.types.ts", "types/domain.ts",
-        "app/(site)/page.tsx", "app/(site)/notable-works/page.tsx", "app/(site)/phases/[id]/page.tsx",
-        "components/phases/PhaseEntry.tsx", "components/phases/PhaseGallery.tsx", "components/phases/PhaseSlideshow.tsx",
-        "components/phases/PhaseFullGallery.tsx", "components/features/FeatureSection.tsx", "components/posts/PostsFeed.tsx",
-        "app/admin/(protected)/phases/actions.ts", "app/admin/(protected)/phases/PhaseForm.tsx",
-        "app/admin/(protected)/phases/PhasePhotosManager.tsx", "app/admin/(protected)/features/FeatureForm.tsx",
-        "app/admin/(protected)/features/SectionList.tsx", "app/admin/(protected)/posts/PostForm.tsx",
-        "app/admin/(protected)/arrangement/ArrangementManager.tsx", "lib/homepage-layout.ts",
+        {
+          type: "changed",
+          text: "Converted all slideshow interval columns from integer to numeric(4,2), with step=\"0.1\" inputs, end to end.",
+          files: [
+            "supabase/migrations/20260924000000_phases_and_timer_enhancements.sql",
+            "types/database.types.ts",
+            "components/phases/PhaseSlideshow.tsx",
+            "app/admin/(protected)/phases/PhaseForm.tsx",
+            "app/admin/(protected)/features/FeatureForm.tsx",
+          ],
+        },
+        {
+          type: "added",
+          text: "Dedicated is_published toggle for Phases, defaulting to draft on creation.",
+          files: ["app/admin/(protected)/phases/actions.ts", "app/admin/(protected)/phases/PhaseForm.tsx"],
+        },
+        {
+          type: "added",
+          text: "Phase \"Read More\" page (/phases/[id]) with full narrative and uncapped photo gallery, each photo with caption and an optional per-photo fact/detail field.",
+          files: ["app/(site)/phases/[id]/page.tsx", "components/phases/PhaseFullGallery.tsx", "app/admin/(protected)/phases/PhasePhotosManager.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Conditional Phase media rendering: auto-advancing slideshow when interval > 0, otherwise a static grid capped at a configurable max_display_images.",
+          files: [
+            "components/phases/PhaseEntry.tsx",
+            "components/phases/PhaseGallery.tsx",
+            "components/features/FeatureSection.tsx",
+            "components/posts/PostsFeed.tsx",
+            "app/admin/(protected)/features/SectionList.tsx",
+            "app/admin/(protected)/posts/PostForm.tsx",
+            "app/admin/(protected)/arrangement/ArrangementManager.tsx",
+            "lib/homepage-layout.ts",
+            "app/(site)/page.tsx",
+            "app/(site)/notable-works/page.tsx",
+            "types/domain.ts",
+          ],
+        },
       ],
     },
   },
@@ -421,15 +633,28 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Dedicated /admin/arrangement page, replacing the old Settings > Homepage Sections tab." },
-        { type: "added", text: "Drag-and-drop handles plus Move Up/Down buttons (disabled at the top/bottom of the movable zone) and a visibility toggle per section." },
-        { type: "added", text: "Audit log entry (UPDATE_ARRANGEMENT) whenever the layout order is saved." },
-      ],
-      filesChanged: [
-        "app/admin/(protected)/arrangement/page.tsx", "app/admin/(protected)/arrangement/ArrangementManager.tsx",
-        "app/admin/(protected)/arrangement/actions.ts", "app/admin/(protected)/settings/page.tsx",
-        "app/admin/(protected)/settings/actions.ts", "app/admin/(protected)/settings/HomepageLayoutManager.tsx (removed)",
-        "app/admin/(protected)/features/actions.ts", "components/admin/AdminSidebar.tsx",
+        {
+          type: "added",
+          text: "Dedicated /admin/arrangement page, replacing the old Settings > Homepage Sections tab.",
+          files: [
+            "app/admin/(protected)/arrangement/page.tsx",
+            "app/admin/(protected)/arrangement/ArrangementManager.tsx",
+            "app/admin/(protected)/arrangement/actions.ts",
+            "app/admin/(protected)/settings/page.tsx",
+            "app/admin/(protected)/settings/HomepageLayoutManager.tsx (removed)",
+            "components/admin/AdminSidebar.tsx",
+          ],
+        },
+        {
+          type: "added",
+          text: "Drag-and-drop handles plus Move Up/Down buttons (disabled at the top/bottom of the movable zone) and a visibility toggle per section.",
+          files: ["app/admin/(protected)/arrangement/ArrangementManager.tsx"],
+        },
+        {
+          type: "added",
+          text: "Audit log entry (UPDATE_ARRANGEMENT) whenever the layout order is saved.",
+          files: ["app/admin/(protected)/arrangement/actions.ts", "app/admin/(protected)/settings/actions.ts", "app/admin/(protected)/features/actions.ts"],
+        },
       ],
     },
   },
@@ -447,20 +672,40 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Phases as first-class content (admin CRUD, public showcase, photo manager), then merged under Features as a distinct Section Type." },
-        { type: "changed", text: "Notable Works refactored: dedicated /notable-works archive page, post pinning, reworked carousel/slideshow." },
-        { type: "added", text: "Admin presence indicators and a 24-hour rolling activity log (dashboard_activity_logs)." },
-        { type: "added", text: "Responsive admin sidebar: slide-in mobile drawer replacing a desktop-only fixed sidebar." },
-        { type: "security", text: "Fixed an RLS infinite-recursion bug and audited every admin-auth policy end to end." },
-      ],
-      filesChanged: [
-        "app/(site)/error.tsx (new)", "app/global-error.tsx (new)", "app/(site)/notable-works/page.tsx (new)",
-        "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/error.tsx (new)",
-        "app/admin/(protected)/layout.tsx", "app/admin/(protected)/page.tsx", "app/admin/(protected)/logs/page.tsx (new)",
-        "app/admin/(protected)/features/*", "app/admin/(protected)/phases/*", "app/admin/(protected)/posts/PostForm.tsx",
-        "components/admin/AdminPresence.tsx (new)", "components/admin/AdminSidebar.tsx (new)",
-        "components/admin/MobileSidebarContext.tsx (new)", "lib/activity-log.ts (new)",
-        "supabase/migrations/20260921000000_audit_and_fix_rls.sql (new)",
+        {
+          type: "added",
+          text: "Phases as first-class content (admin CRUD, public showcase, photo manager), then merged under Features as a distinct Section Type.",
+          files: ["app/admin/(protected)/features/*", "app/admin/(protected)/phases/*", "app/(site)/page.tsx"],
+        },
+        {
+          type: "changed",
+          text: "Notable Works refactored: dedicated /notable-works archive page, post pinning, reworked carousel/slideshow.",
+          files: ["app/(site)/notable-works/page.tsx (new)", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/posts/PostForm.tsx"],
+        },
+        {
+          type: "added",
+          text: "Admin presence indicators and a 24-hour rolling activity log (dashboard_activity_logs), plus dedicated error boundaries for both the public site and the dashboard.",
+          files: [
+            "components/admin/AdminPresence.tsx (new)",
+            "app/admin/(protected)/logs/page.tsx (new)",
+            "lib/activity-log.ts (new)",
+            "app/(site)/error.tsx (new)",
+            "app/global-error.tsx (new)",
+            "app/admin/(protected)/error.tsx (new)",
+            "app/admin/(protected)/layout.tsx",
+            "app/admin/(protected)/page.tsx",
+          ],
+        },
+        {
+          type: "added",
+          text: "Responsive admin sidebar: slide-in mobile drawer replacing a desktop-only fixed sidebar.",
+          files: ["components/admin/AdminSidebar.tsx (new)", "components/admin/MobileSidebarContext.tsx (new)"],
+        },
+        {
+          type: "security",
+          text: "Fixed an RLS infinite-recursion bug and audited every admin-auth policy end to end.",
+          files: ["supabase/migrations/20260921000000_audit_and_fix_rls.sql (new)"],
+        },
       ],
     },
   },
@@ -478,16 +723,28 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Mandatory two-step OTP login and a MODERATOR role tier." },
-        { type: "added", text: "Self-service password change and an admin-override reset for other users' passwords." },
-        { type: "fixed", text: "Broken handle_new_user Postgres trigger and a login Server Action redirect race condition that could leave a session in an inconsistent state." },
-      ],
-      filesChanged: [
-        "app/admin/(protected)/layout.tsx", "app/admin/(protected)/settings/UsersManager.tsx",
-        "app/admin/login/LoginForm.tsx (new)", "app/admin/verify-otp/VerifyOtpForm.tsx (new)",
-        "components/admin/AdminResetPasswordModal.tsx (new)", "components/admin/ChangePasswordModal.tsx (new)",
-        "lib/admin-guard.ts", "lib/otp-login.ts", "lib/otp-session.ts", "proxy.ts",
-        "supabase/migrations/20260915000000_moderator_role.sql (new)",
+        {
+          type: "added",
+          text: "Mandatory two-step OTP login and a MODERATOR role tier.",
+          files: [
+            "app/admin/login/LoginForm.tsx (new)",
+            "app/admin/verify-otp/VerifyOtpForm.tsx (new)",
+            "lib/otp-login.ts",
+            "lib/otp-session.ts",
+            "proxy.ts",
+            "supabase/migrations/20260915000000_moderator_role.sql (new)",
+          ],
+        },
+        {
+          type: "added",
+          text: "Self-service password change and an admin-override reset for other users' passwords.",
+          files: ["components/admin/ChangePasswordModal.tsx (new)", "components/admin/AdminResetPasswordModal.tsx (new)", "app/admin/(protected)/settings/UsersManager.tsx"],
+        },
+        {
+          type: "fixed",
+          text: "Broken handle_new_user Postgres trigger and a login Server Action redirect race condition that could leave a session in an inconsistent state.",
+          files: ["lib/admin-guard.ts", "app/admin/(protected)/layout.tsx"],
+        },
       ],
     },
   },
@@ -501,16 +758,32 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Homepage layout builder (HomepageLayoutManager.tsx) — precursor to the later dedicated /admin/arrangement page." },
-        { type: "changed", text: "Post detail page: embed sits beside post text in two columns on desktop (stacked on mobile); uploaded media renders only in the dedicated Media section below." },
-        { type: "added", text: "Dual-channel (email/SMS) login OTP, 15-minute inactivity session timer, user/role management (UsersManager.tsx)." },
-        { type: "fixed", text: "A media-rendering crash on the public post page; a bug in the single-admin migration." },
-      ],
-      filesChanged: [
-        "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/layout.tsx",
-        "app/admin/(protected)/settings/HomepageLayoutManager.tsx (new)", "app/admin/(protected)/settings/UsersManager.tsx (new)",
-        "components/admin/SessionTimer.tsx (new)", "lib/admin-guard.ts (new)", "lib/otp-login.ts (new)",
-        "supabase/migrations/20260914000000_otp_and_user_roles.sql (new)",
+        {
+          type: "added",
+          text: "Homepage layout builder (HomepageLayoutManager.tsx) — precursor to the later dedicated /admin/arrangement page.",
+          files: ["app/admin/(protected)/settings/HomepageLayoutManager.tsx (new)"],
+        },
+        {
+          type: "changed",
+          text: "Post detail page: embed sits beside post text in two columns on desktop (stacked on mobile); uploaded media renders only in the dedicated Media section below.",
+          files: ["app/(site)/posts/[id]/page.tsx", "app/(site)/page.tsx"],
+        },
+        {
+          type: "added",
+          text: "Dual-channel (email/SMS) login OTP, 15-minute inactivity session timer, user/role management (UsersManager.tsx).",
+          files: [
+            "lib/otp-login.ts (new)",
+            "components/admin/SessionTimer.tsx (new)",
+            "app/admin/(protected)/settings/UsersManager.tsx (new)",
+            "lib/admin-guard.ts (new)",
+            "app/admin/(protected)/layout.tsx",
+            "supabase/migrations/20260914000000_otp_and_user_roles.sql (new)",
+          ],
+        },
+        {
+          type: "fixed",
+          text: "A media-rendering crash on the public post page; a bug in the single-admin migration.",
+        },
       ],
     },
   },
@@ -527,16 +800,26 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Per-header-action colors, side-by-side post detail layout, per-post carousel speed control." },
-        { type: "added", text: "Discord push notifications via a GitHub Actions workflow, plus a local notify-discord.js script for dev-machine pushes." },
-        { type: "fixed", text: "Root cause of an earlier dashboard crash; unified header/nav settings, hero badge, and organization-wrap controls." },
-        { type: "changed", text: "Removed dark mode entirely, redesigned the mobile header, added post thumbnails, split post media into its own section." },
-      ],
-      filesChanged: [
-        "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx", "app/admin/(protected)/posts/PostForm.tsx",
-        "app/admin/(protected)/settings/HeaderActionsManager.tsx", "app/admin/(protected)/settings/NavLinksManager.tsx (new)",
-        ".github/workflows/discord-notify.yml (new)", "scripts/notify-discord.js (new)",
-        "supabase/migrations/20260912000000_header_action_colors_and_post_interval.sql (new)",
+        {
+          type: "added",
+          text: "Per-header-action colors, side-by-side post detail layout, per-post carousel speed control.",
+          files: ["app/admin/(protected)/settings/HeaderActionsManager.tsx", "app/(site)/posts/[id]/page.tsx", "supabase/migrations/20260912000000_header_action_colors_and_post_interval.sql (new)"],
+        },
+        {
+          type: "added",
+          text: "Discord push notifications via a GitHub Actions workflow, plus a local notify-discord.js script for dev-machine pushes.",
+          files: [".github/workflows/discord-notify.yml (new)", "scripts/notify-discord.js (new)"],
+        },
+        {
+          type: "fixed",
+          text: "Root cause of an earlier dashboard crash; unified header/nav settings, hero badge, and organization-wrap controls.",
+          files: ["app/admin/(protected)/settings/NavLinksManager.tsx (new)"],
+        },
+        {
+          type: "changed",
+          text: "Removed dark mode entirely, redesigned the mobile header, added post thumbnails, split post media into its own section.",
+          files: ["app/(site)/page.tsx", "app/admin/(protected)/posts/PostForm.tsx"],
+        },
       ],
     },
   },
@@ -553,15 +836,28 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Header builder (custom header actions/buttons), post embeds and image carousels, dynamic contact email, complaint reference numbers." },
-        { type: "added", text: "Full-color organization hover showcase and an optional complaint phone number field." },
-        { type: "added", text: "Root-relative section anchors with cross-page smooth scrolling (AnchorAwareLink.tsx)." },
-      ],
-      filesChanged: [
-        "app/(site)/complaints/page.tsx", "app/(site)/layout.tsx", "app/(site)/page.tsx", "app/(site)/posts/[id]/page.tsx",
-        "app/admin/(protected)/complaints/ComplaintDetailModal.tsx", "app/admin/(protected)/settings/HeaderActionsManager.tsx (new)",
-        "components/posts/PostEmbed.tsx (new)", "components/posts/PostImageCarousel.tsx (new)",
-        "components/site/AnchorAwareLink.tsx (new)", "lib/embed.ts (new)", "lib/reference.ts (new)",
+        {
+          type: "added",
+          text: "Header builder (custom header actions/buttons), post embeds and image carousels, dynamic contact email, complaint reference numbers.",
+          files: [
+            "app/admin/(protected)/settings/HeaderActionsManager.tsx (new)",
+            "components/posts/PostEmbed.tsx (new)",
+            "components/posts/PostImageCarousel.tsx (new)",
+            "app/(site)/complaints/page.tsx",
+            "lib/reference.ts (new)",
+            "app/(site)/layout.tsx",
+          ],
+        },
+        {
+          type: "added",
+          text: "Full-color organization hover showcase and an optional complaint phone number field.",
+          files: ["app/(site)/page.tsx", "app/admin/(protected)/complaints/ComplaintDetailModal.tsx"],
+        },
+        {
+          type: "added",
+          text: "Root-relative section anchors with cross-page smooth scrolling (AnchorAwareLink.tsx).",
+          files: ["components/site/AnchorAwareLink.tsx (new)", "app/(site)/posts/[id]/page.tsx"],
+        },
       ],
     },
   },
@@ -574,9 +870,12 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Render Blueprint (render.yaml) with standalone Next.js output for deployment, then fixed the build (devDependencies weren't installed), then removed render.yaml entirely in favor of configuring the build directly in Render's dashboard." },
+        {
+          type: "added",
+          text: "Render Blueprint (render.yaml) with standalone Next.js output for deployment, then fixed the build (devDependencies weren't installed), then removed render.yaml entirely in favor of configuring the build directly in Render's dashboard.",
+          files: ["next.config.ts", "render.yaml (added, then removed)"],
+        },
       ],
-      filesChanged: ["next.config.ts", "render.yaml (added, then removed)"],
     },
   },
   {
@@ -589,13 +888,16 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
     advanced: {
       changes: [
-        { type: "added", text: "Replaced the hand-authored static HTML/CSS site with the current dynamic Next.js application: public site, full admin dashboard, initial Supabase schema/RLS/storage setup. ~106 files added in one commit (0f06030) — the actual starting point of this changelog." },
-        { type: "added", text: "Citizen complaint retention policy: purgeExpiredComplaints() permanently deletes any complaint past its expires_at timestamp (row, media rows, storage files). Runs inline on every admin dashboard load and via an unauthenticated cron endpoint (optionally gated behind CRON_SECRET)." },
-      ],
-      filesChanged: [
-        "Full application scaffold — see commit 0f06030 for the complete ~106-file list.",
-        "app/(site)/*", "app/admin/*", "utils/supabase/{admin,client,middleware,server}.ts",
-        "supabase/migrations/20260911170000_complaints.sql", "supabase/migrations/20260911220000_complaint_status.sql",
+        {
+          type: "added",
+          text: "Replaced the hand-authored static HTML/CSS site with the current dynamic Next.js application: public site, full admin dashboard, initial Supabase schema/RLS/storage setup. ~106 files added in one commit (0f06030) — the actual starting point of this changelog.",
+          files: ["app/(site)/*", "app/admin/*", "utils/supabase/{admin,client,middleware,server}.ts"],
+        },
+        {
+          type: "added",
+          text: "Citizen complaint retention policy: purgeExpiredComplaints() permanently deletes any complaint past its expires_at timestamp (row, media rows, storage files). Runs inline on every admin dashboard load and via an unauthenticated cron endpoint (optionally gated behind CRON_SECRET).",
+          files: ["supabase/migrations/20260911170000_complaints.sql", "supabase/migrations/20260911220000_complaint_status.sql"],
+        },
       ],
     },
   },
