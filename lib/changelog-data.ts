@@ -25,7 +25,11 @@ export interface ChangelogEntry {
   date: string; // YYYY-MM-DD
   title: string;
   simple: {
-    summary: string;
+    // A single string renders as one paragraph. An array is for an entry
+    // that bundles multiple distinct updates (e.g. "First... Second...
+    // Third...") — each item renders as its own separated paragraph
+    // instead of being mashed into one dense wall of text.
+    summary: string | string[];
     tutorial?: string[];
   };
   advanced: {
@@ -41,8 +45,12 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
     date: "2026-09-17",
     title: "Render memory hardening + the page you're reading right now",
     simple: {
-      summary:
-        "Several things today. First, we double-checked the site's Render crash (the one that took the whole dashboard down until someone cleared the cache): a full audit found the caching system was never actually the problem — it's already capped and healthy. The real fix is Render's memory limit setting, which is confirmed in place. On top of that we tightened a few safety margins anyway, for extra peace of mind. Second: this Changelogs page. It exists so you don't have to ask a developer \"what did that last update actually do\" — pick a date, pick a version, and read it in plain English. Third, we finally found and fixed the occasional \"Invalid time value\" error in the server logs — it happened only if a post's publish date/time was somehow malformed; that's now caught and handled gracefully instead of crashing. Fourth, the Meta App ID/App Secret fields in Settings > Media & Display have been removed — they never actually worked (a database setup step behind them was never finished), and Facebook/Instagram embeds don't depend on them anyway.",
+      summary: [
+        "We double-checked the site's Render crash (the one that took the whole dashboard down until someone cleared the cache): a full audit found the caching system was never actually the problem — it's already capped and healthy. The real fix is Render's memory limit setting, which is confirmed in place. On top of that we tightened a few safety margins anyway, for extra peace of mind.",
+        "This Changelogs page now exists, so you don't have to ask a developer \"what did that last update actually do\" — pick a date, pick a version, and read it in plain English.",
+        "Fixed an occasional \"Invalid time value\" error in the server logs. It only happened if a post's publish date/time was somehow malformed; that's now caught and handled gracefully instead of crashing.",
+        "Removed the Meta App ID/App Secret fields from Settings > Media & Display. They never actually worked (a database setup step behind them was never finished), and Facebook/Instagram embeds don't depend on them anyway.",
+      ],
       tutorial: [
         "Open Changelogs from the sidebar.",
         "Pick a date on the left — the versions shipped that day appear underneath it.",

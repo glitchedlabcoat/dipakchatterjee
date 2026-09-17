@@ -158,7 +158,17 @@ export default function ChangelogBrowser({ entries }: { entries: ChangelogEntry[
 
         {mode === "simple" ? (
           <div className="bg-white border border-line rounded-xl p-6">
-            <p className="text-sm text-ink-600 leading-relaxed">{selectedEntry.simple.summary}</p>
+            {Array.isArray(selectedEntry.simple.summary) ? (
+              <div className="space-y-3">
+                {selectedEntry.simple.summary.map((point, i) => (
+                  <p key={i} className="text-sm text-ink-600 leading-relaxed">
+                    {point}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-ink-600 leading-relaxed">{selectedEntry.simple.summary}</p>
+            )}
             {selectedEntry.simple.tutorial && selectedEntry.simple.tutorial.length > 0 && (
               <div className="mt-5 pt-5 border-t border-line">
                 <p className="text-xs font-semibold uppercase tracking-wide text-ink-400 mb-3">How to use it</p>
