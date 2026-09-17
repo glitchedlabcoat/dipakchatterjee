@@ -41,6 +41,7 @@ import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
 import { getSiteSettings } from "@/lib/queries/settings";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
 import { darken } from "@/lib/color";
+import { SITE_URL } from "@/lib/site-url";
 import SiteHeader from "@/components/site/SiteHeader";
 import SiteFooter from "@/components/site/SiteFooter";
 
@@ -49,7 +50,6 @@ export const dynamic = "force-dynamic";
 const DEFAULT_SITE_TITLE = "Janatar Dipak";
 const DEFAULT_META_DESCRIPTION =
   "Official portfolio of Dipak Chatterjee — social worker, educationist, and community leader in Chanchal, North Malda.";
-const SITE_URL = "https://janatardipak.com";
 
 // footer_blocks/social_links/nav_links/header_actions only — settings
 // itself now comes from the shared, TAG_SETTINGS-tagged getSiteSettings()

@@ -1,6 +1,7 @@
 // app/layout.tsx
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
+import { SITE_URL } from "@/lib/site-url";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -16,6 +17,16 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
+  // Set here (the true root layout) so every route — (site) and admin
+  // alike — resolves relative URL-based metadata fields against this
+  // single canonical origin, per Next's own guidance ("metadataBase is
+  // typically set in root app/layout.js to apply ... across all
+  // routes" — node_modules/next/dist/docs/.../generate-metadata.md).
+  // Strictly the bare HTTPS apex domain: no `www.`, no trailing slash.
+  metadataBase: new URL(SITE_URL),
+  alternates: {
+    canonical: "/",
+  },
   title: "Dipak Chatterjee — Social Worker, Educationist & Public Life",
   description:
     "Official portfolio of Dipak Chatterjee — social worker, educationist, and community leader in Chanchal, North Malda.",

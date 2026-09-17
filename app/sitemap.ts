@@ -1,7 +1,8 @@
 import type { MetadataRoute } from 'next';
+import { SITE_URL } from '@/lib/site-url';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const baseUrl = 'https://janatardipak.com';
+  const baseUrl = SITE_URL;
 
   // Core static routes
   const routes: MetadataRoute.Sitemap = [
