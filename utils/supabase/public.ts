@@ -17,13 +17,38 @@
 // Never use this for admin/mutating code paths — it can't see an admin's
 // session, so any query relying on is_admin() in RLS will simply see
 // nothing back.
-
+//
+// `auth: { autoRefreshToken: false, persistSession: false,
+// detectSessionInUrl: false }` is REQUIRED here, not optional hardening:
+// plain `@supabase/supabase-js` createClient() (unlike @supabase/ssr's
+// createServerClient, which defaults autoRefreshToken to false itself)
+// defaults autoRefreshToken to true, and auth-js's GoTrueClient starts
+// that refresh ticker unconditionally in any non-browser environment —
+// see its own comment, "in non-browser environments the refresh token
+// ticker runs always" (node_modules/@supabase/auth-js/dist/main/
+// GoTrueClient.js, _handleVisibilityChange()). That setInterval is
+// unref()'d (so it doesn't block process exit) but is NEVER cleared,
+// and its closure keeps the entire client instance — and everything it
+// references — alive in the heap for the rest of the process's life.
+// This function is called fresh on every cache miss across 6 call
+// sites (getHomepageSections, getSiteSettings, getSiteChrome,
+// getPublishedPhase, getPostsList, getPostById), so under real traffic
+// that's a steady stream of permanently-leaked client instances — this
+// was the actual root cause of Render's repeated slow-climbing OOM
+// crashes (confirmed 2026-09-17 via instrumentation.ts's periodic
+// memory logs: heapUsed climbed smoothly for ~2 hours post-restart, at
+// the same rate every time, which a one-time heap-ceiling mismatch
+// could never produce — only genuine accumulation does). This client
+// is always anonymous and never has a session to refresh in the first
+// place, so disabling all three options is pure correctness, not a
+// behavior change.
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database.types";
 
 export function createPublicClient() {
   return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false } }
   );
 }
