@@ -8,6 +8,30 @@ rewritten.
 
 --------------------
 
+[v1.16.0] - 2026-09-19
+
+* Added: New keep-alive endpoint, GET/HEAD /api/ping
+  (app/api/ping/route.ts), meant to be polled by an external uptime
+  monitor (UptimeRobot) pointed at the Render .onrender.com URL. Every
+  request returns an immediate 200 with { status: "ok", uptime }
+  (Cache-Control: no-store), which keeps the Render instance awake.
+  Separately, on every 4th UTC epoch-day it fires one background,
+  fire-and-forget "select id from site_settings limit 1" through
+  createPublicClient() so Supabase's 7-day inactivity auto-pause never
+  triggers; a module-level lastDbPingDate flag ensures that query runs
+  at most once per due day, it is only set on success (a failure is
+  retried on the next ping and logged, never surfaced to the caller),
+  and the response never waits on it. Epoch-day cadence was chosen over
+  getDate() % 4 because day-of-month multiples of 4 leave a 7-day gap
+  across month boundaries (28th to 4th in a 31-day month), exactly
+  Supabase's pause threshold. No new table or migration: site_settings
+  is already anon-readable via RLS.
+
+Files edited (paths only):
+  - app/api/ping/route.ts (new)
+
+--------------------
+
 [v1.15.0] - 2026-09-17
 
 * Changed: next.config.ts - added an explicit cacheMaxMemorySize: 20MB
