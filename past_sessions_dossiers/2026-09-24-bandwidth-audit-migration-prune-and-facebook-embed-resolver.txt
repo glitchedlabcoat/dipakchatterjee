@@ -1,0 +1,322 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER (INTERIM — DAY NOT CLOSED): RENDER
+BANDWIDTH DRAIN FIX, MIGRATION PRUNE, FACEBOOK SHORT-LINK RESOLVER ("WAY R"),
+FACEBOOK CAPTION TOGGLE, REEL DIAGNOSIS, AND MID-DAY AUDIT
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW:
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-24 (session tab: dc-2026-09-19 — named by the
+  user; the date in the name is not the working date)
+- File Name: past_sessions_dossiers/2026-09-24-bandwidth-audit-migration-prune-and-facebook-embed-resolver.txt
+- STATUS: INTERIM checkpoint written mid-day at the user's request. More work
+  may follow today; append to this file (and to CHANGELOG's v1.17.0 "Today's
+  Checkpoint") rather than opening a new dated dossier/version.
+- Repository: dipakchatterjee (Next.js 16.3.4 App Router, Turbopack, Supabase,
+  Cloudflare R2), deployed on Render (512MB, `output: "standalone"`). Remote
+  https://github.com/glitchedlabcoat/dipakchatterjee.git, branch main.
+- Core objectives, in order:
+    (1) Re-ingest all 9 prior dossiers; confirm readiness (<100 words).
+    (2) Eliminate Render "Service-Initiated" bandwidth (3.54 GB of a 5 GB
+        monthly cap).
+    (3) Audit live migration state; prune supabase/migrations/ to at most one
+        pending file.
+    (4) Re-list the Facebook embed "Ways" (0-7 + R); test Way R (short-link
+        resolution) FROM RENDER'S IP; then build it.
+    (5) Find post-type (non-reel) Facebook links in the DB.
+    (6) Diagnose "reels don't play"; add a per-link caption show/hide option.
+    (7) Mid-day audit + cleanup + this dossier + push.
+- Standing constraints (unchanged): zero/near-zero cost; commit/push only on
+  explicit instruction; never write live secrets to committed files; "do not
+  disturb Mr. Dipak" (no ideas needing his login, tokens, re-uploads, audio
+  or privacy changes); no Meta Business Verification (so no Graph oEmbed);
+  no heavy work on Render. Per-task Discord "Update in Progress / Update
+  Finished" reply protocol was re-issued by the user for TODAY ONLY (text in
+  replies; nothing is posted to Discord by the assistant). Commit trailer
+  requested today by the user: `Co-Authored-By: Claude Sonnet 5`.
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER:
+--------------------------------------------------------------------------------
+
+[Step 1 — Dossier ingestion]
+  * Latest dossier (2026-09-19) read in full; Section 6 of the 8 earlier ones
+    read. Confirmed readiness.
+
+[Step 2 — Bandwidth drain: diagnosis]
+  * Event: Render showed 3.76/5.0 GB used, 3.54 GB "Service-Initiated".
+  * Audit found no server polling/cron (only instrumentation-node.ts's 15-min
+    memory log, `.unref()`'d, no network), no retry loops, no outbound
+    logging/telemetry service.
+  * Evidence (read-only query of the cache_metrics table): ~87,000 cache
+    events/day since 09-16 (~21,800 homepage renders/day = one every ~4s,
+    around the clock) vs ~40 post-page views/day — machine traffic.
+  * Root cause: the deleted render.yaml (removed 2026-09-11, git history) had
+    `healthCheckPath: /`; deleting the file does NOT change an existing Render
+    service's dashboard setting, so Render's health checker renders the full
+    homepage every ~4s. Each render fired 4 per-event `record_cache_event()`
+    RPCs (lib/cache.ts) => ~87k outbound HTTPS calls/day, plus a Supabase
+    refetch per cached key every 60s. Secondary: admin uploads were proxied
+    browser -> Render -> R2 (PutObject from Render, up to 25MB each).
+  * Health-check-path inference is from git history; the dashboard itself
+    was not viewed by the assistant.
+
+[Step 3 — Bandwidth drain: fix]  -> commit 867f757
+  * lib/cache.ts: telemetry batched in memory (Map<route, counts>), flushed
+    lazily (on the next event after FLUSH_INTERVAL_MS = 10 min; no timer) as
+    one `record_cache_events()` RPC per route; failures drop the batch (no
+    re-queue, no retry storm). New constant PUBLIC_REVALIDATE_SECONDS = 600
+    replaces every public `revalidate: 60` (lib/queries/posts.ts,
+    lib/queries/settings.ts, app/(site)/layout.tsx, app/(site)/page.tsx,
+    app/(site)/phases/[id]/page.tsx); admin saves still bust tags instantly.
+  * New SQL function public.record_cache_events(p_route, p_hits, p_misses,
+    p_bytes_saved, p_bytes_spent) (SECURITY DEFINER, anon/authenticated
+    execute, rejects negatives). The USER applied it directly in the Supabase
+    SQL editor (confirmed live via the PostgREST OpenAPI spec); the migration
+    file was never committed. types/database.types.ts updated by hand.
+  * Direct-to-R2 admin uploads: new app/api/admin/upload-url/route.ts
+    (requireAdmin, returns presigned PUT + public url + the signed
+    Cache-Control), lib/r2.ts createR2UploadUrl() + exported
+    R2_UPLOAD_CACHE_CONTROL, new lib/admin-upload-policy.ts (shared
+    ALLOWED_FOLDERS, sanitizeKeyPath, 10MB image / 25MB video caps,
+    validateAdminUpload()), app/api/admin/upload/route.ts now uses the shared
+    policy and is the FALLBACK. lib/media-upload-client.ts: presign -> PUT;
+    presign 400/401 throws; any other presign failure or a failed/CORS-blocked
+    PUT falls back to the proxied route.
+  * Verified: tsc/lint clean; local dev with a preloaded fetch logger — 30
+    homepage loads made 0 Supabase calls (old code: 120 RPCs). Admin upload
+    end-to-end NOT tested (needs admin login).
+
+[Step 4 — Migration audit + prune]  -> commit 43a4ba6
+  * `npx supabase migration list`: 32 recorded remote; 4 untracked
+    (0928 meta_description, 0929 integration_settings, 0929010 search_tags,
+    0930 record_cache_events_batch). Live schema check (read-only OpenAPI):
+    search_tags column EXISTS; record_cache_events EXISTS;
+    integration_settings EXISTS but with uuid id (file's text-id insert would
+    fail — must never run); meta_description MISSING (and is used by the admin
+    SEO snippet form + public metadata — SEO form saves likely fail live).
+  * Deleted 34 tracked files via `git rm` + 1 untracked file via `rm`
+    (after the user added permission rules — plain rm / git rm were first
+    blocked by the auto-mode classifier). Remaining:
+    supabase/migrations/20260928000000_meta_description.sql only.
+  * Caveat recorded: `supabase db push` will now complain that remote
+    versions are missing locally; use the SQL editor, or
+    `supabase migration repair` (writes the live tracking table — needs user
+    approval).
+  * Noticed: .claude/settings.local.json had TWO top-level JSON objects
+    (hooks block + new permissions block) = invalid JSON; user was told to
+    merge them. Not verified whether they did.
+
+[Step 5 — Facebook "Ways" re-listed; Way R probed from Render]  -> 71b8da5
+  * Temporary admin-only route app/api/admin/debug-fb-resolve/route.ts
+    (headers-only, 4 links x 5 header variants, egress IP via
+    1.1.1.1/cdn-cgi/trace) deployed. User ran it on production.
+  * Result from Render (egress 74.220.52.132, colo SIN): IDENTICAL to the
+    residential baseline — facebookexternalhit / curl / facebookexternalhit+
+    Accept => 302 + canonical Location (content-length 0); Chrome UA (with or
+    without Accept/Accept-Language) => 400 (proxy-status
+    http_request_error). Facebook gates on User-Agent, not IP/ASN. share/r
+    19bJDRRs5c -> /reel/1062948006584774/; share/p 1DSbpaqaMj -> /posts/pfbid.
+
+[Step 6 — Way R built]  -> commit 51ee4f0
+  * New lib/facebook-resolver.ts: isFacebookShortLink() (/share/{v,r,p}/ and
+    fb.watch); resolveUncached(): fetch redirect:"manual", facebookexternalhit
+    UA, 4s timeout, body cancelled; throws on non-3xx / login / checkpoint /
+    another short-link / non-Facebook target; sanitizeFacebookUrl() on the
+    target. unstable_cache 30 days, tag "facebook-short-link"; thrown results
+    are never cached. resolveFacebookUrl() returns the original URL on any
+    error (console.warn "[facebook-resolver] kept original ...").
+  * lib/facebook-url.ts: TRACKING_PARAMS += "share_url".
+  * app/(site)/posts/[id]/page.tsx: resolves each embed link BEFORE
+    getEmbedInfo(), so classification uses the resolved URL (share/v links
+    that point at /posts/pfbid correctly get fb-post).
+  * Uncommitted "Way 1" (xfbml.ready failure detection) in FacebookEmbed.tsx
+    discarded (`git restore`); only its header comment was updated. Debug
+    route deleted.
+  * Verified: real resolver code (Node loader, unstable_cache stubbed) on 7
+    cases incl. a bogus link (Facebook answered 200 -> kept original); real
+    post page b48e3665 on local dev: 1 Facebook request on first load, 0 on
+    repeats; rendered fb-post with canonical pfbid data-href.
+
+[Step 7 — Post-type Facebook links inventory (read-only)]
+  * 252 Facebook links stored. 163 lead to regular POSTS (all 143 share/p
+    links resolved and confirmed /posts/pfbid; plus 20 direct post URLs);
+    162 of those are on published posts; only 2 are type "embed"
+    (b48e3665-3b7d-46ef-a062-520e1c7a97db, 68da02be-4277-48f4-8dfd-
+    35ad9486261a). A reel link on post 6438d81a had been switched to "embed"
+    since the morning (by the user, presumably). The CSV export lived in the
+    session scratchpad and was deleted in Step 10.
+
+[Step 8 — Reel diagnosis]  -> documented in commit 1a16e31
+  * Real browser (Edge via Playwright) through the site's own XFBML fb-video:
+    8 of the 9 reels in the DB PLAY. The single failing reel,
+    /reel/2281911162607324 (post 6438d81a-14f9-4b98-b4f9-cb85286040ee, the
+    only reel set to Embed), is refused by Facebook itself: "Unavailable.
+    This video can't be embedded because it may contain content owned by
+    someone else." — under /reel/<id>, /reel/<id>/, /watch/?v=, and
+    /<page>/videos/<id>/. This is Meta's per-video rights restriction
+    (licensed/third-party audio), not an app bug. Classification (fb-video,
+    vertical), sizing (Meta sizes the iframe, ~640-850px), and the 8s mount
+    fallback (fires only if no iframe mounts; blocked reels DO mount) were all
+    verified correct; no reel code change was made.
+  * Earlier 2026-09-15/19 "Video Unavailable" reports were mostly the
+    short-link problem (now fixed by Way R); the licensed-music hypothesis is
+    TRUE for some individual reels (like 2281911162607324), not for reels in
+    general.
+
+[Step 9 — Caption toggle]  -> commit 1a16e31
+  * types/domain.ts PostLink += `showText?: boolean` (additive; undefined =
+    shown). PostForm.tsx: zod `showText: z.boolean().optional()`, defaults to
+    true when loading/adding links, checkbox "Include Facebook post text /
+    caption" shown only for Facebook embed links, with the note "Applies to
+    videos and reels. Facebook always shows the text on regular posts."
+  * page.tsx -> PostEmbed (new `showText` prop, default true) -> FacebookEmbed
+    (`showText` -> data-show-text on fb-video/fb-post, and the fallback
+    iframe's show_text param; XFBML div keyed on `${cleanUrl}:${showText}`,
+    re-parse effect depends on it).
+  * Verified in Edge via a temporary app/fbtesttmp route (git rm'd before
+    commit): reel text on 846px / off 655px, container shrinks with no empty
+    padding, player present both ways; fb-post ignores the attribute (Meta's
+    behavior) — same 684px either way.
+  * Behavior change: existing video embeds without showText now SHOW their
+    caption (previously fb-video hard-coded data-show-text="false").
+
+[Step 10 — Mid-day audit + cleanup + this dossier]  -> docs commit (this file)
+  * `npx tsc --noEmit` clean; `npx eslint . --max-warnings=0` clean.
+  * Secrets: only NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are
+    public (by design). None of the 62 "use client" files import any
+    server-only module (lib/r2*, lib/cloudflare-analytics, lib/notify/*,
+    lib/otp-*, lib/facebook-resolver, lib/cache, lib/queries/*,
+    utils/supabase/{admin,server,public}, lib/admin-guard).
+  * Auth: every app/api route guarded (upload + upload-url: requireAdmin;
+    complaints/upload-url: checkRateLimit + type/size allowlists; cron:
+    CRON_SECRET; heartbeat: getUser + OTP session) except /api/ping (public by
+    design, returns only {status, uptime}). All admin server actions call
+    requireAdmin/requireOwner/requireProfile; login OTP actions require a
+    signed-in user; logoutAdmin only signs out the caller.
+  * CSP (proxy.ts buildCsp): nonce + strict-dynamic, 'unsafe-eval' dev-only,
+    object-src 'none', frame-ancestors 'none', connect-src limited to
+    Supabase, www.facebook.com, and the R2 S3 endpoint (needed for direct
+    uploads), frame-src limited to YouTube/Facebook/Instagram. Clean.
+  * Memory: telemetry Map bounded by the ~6 fixed route labels; resolver cache
+    bounded by stored links (<=252 entries) under next.config.ts's 20MB
+    cacheMaxMemorySize; rate-limit Map capped at 5000; all fire-and-forget
+    promises caught; FacebookEmbed timers/observers cleaned up on unmount.
+    Upload fallback edge case (safe): if R2 accepts the direct PUT but the
+    browser can't read the response (CORS), the fallback re-uploads the SAME
+    key — an idempotent overwrite.
+  * No code findings required fixes.
+  * Cleanup: repo scan found no stray files. Deleted (outside the repo) this
+    session's scratchpad scripts/screenshots/CSV and the 2026-09-19
+    Playwright harness (…/b0583716-…/scratchpad/fbtest, 14MB). A new Facebook
+    browser test would need `npm i playwright-core` in a scratch dir again
+    (use system Edge: "C:/Program Files (x86)/Microsoft/Edge/Application/
+    msedge.exe").
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE:
+--------------------------------------------------------------------------------
+- Batch telemetry instead of removing it: keeps the /admin/usage cache
+  dashboard working at ~1/150th the call volume; lazy flush avoids a new
+  timer; dropping failed batches trades accuracy for safety.
+- 10-minute public TTL: every admin mutation already revalidates tags, so the
+  TTL only bounds staleness for out-of-band DB edits.
+- Presigned direct upload WITH proxied fallback: the admin R2 bucket's CORS
+  config is unknown, so the fallback guarantees uploads keep working; once
+  CORS allows PUT (+ Content-Type, Cache-Control headers) from the site
+  origin, no upload bytes touch Render.
+- Migrations pruned to reality, not to the tracking table: the tracking table
+  disagreed with the live schema in both directions.
+- Way R resolves at render time (cached 30 days) rather than rewriting
+  posts.links: no production data writes, automatic for future links, and
+  fail-soft. Resolution runs server-side because browsers cannot read a
+  cross-origin redirect Location. The facebookexternalhit UA is required —
+  browser UAs get 400.
+- Reels: no code change, because the one failing reel is rights-blocked by
+  Meta regardless of URL form; code cannot override that.
+- showText stored per link (JSONB, additive) rather than a new column: no
+  migration, backward compatible.
+
+4. COMPLETE REPOSITORY IMPACT (Files Touched):
+--------------------------------------------------------------------------------
+Commit ledger (all pushed to origin/main):
+  71b8da5 feat(debug): add temporary admin-only Facebook share-link resolve probe
+  867f757 perf(cache,upload): batch cache telemetry, increase public cache TTL to 10m, and direct R2 admin uploads
+  43a4ba6 chore(db): prune historical applied migrations and retain pending meta_description migration
+  51ee4f0 feat(embeds): resolve Facebook short-links to canonical URLs for direct video/post playback
+  1a16e31 feat(embeds): add per-link Facebook caption toggle; document reel embed diagnosis
+  (+ the docs commit adding this dossier, the 2026-09-19 dossier, and the
+  audit changelog line — see git log)
+New: lib/facebook-resolver.ts, lib/admin-upload-policy.ts,
+  app/api/admin/upload-url/route.ts, this dossier.
+Modified: lib/cache.ts, lib/queries/posts.ts, lib/queries/settings.ts,
+  app/(site)/layout.tsx, app/(site)/page.tsx, app/(site)/phases/[id]/page.tsx,
+  app/(site)/posts/[id]/page.tsx, types/database.types.ts, types/domain.ts,
+  lib/r2.ts, lib/media-upload-client.ts, lib/facebook-url.ts,
+  app/api/admin/upload/route.ts, app/admin/(protected)/posts/PostForm.tsx,
+  components/posts/PostEmbed.tsx, components/embeds/FacebookEmbed.tsx,
+  CHANGELOG.md, CHANGELOG.txt (v1.17.0 - 2026-09-24 + Today's Checkpoint).
+Deleted: 34 files in supabase/migrations/,
+  app/api/admin/debug-fb-resolve/route.ts (created + deleted today).
+Newly committed: past_sessions_dossiers/2026-09-19-keepalive-endpoint-and-
+  facebook-embed-investigation.txt (was untracked since 09-19).
+NOT touched: lib/embed.ts, proxy.ts, lib/changelog-data.ts (still behind),
+  package.json.
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS:
+--------------------------------------------------------------------------------
+- Supabase: all assistant DB access read-only (service-role key read from
+  .env.local at runtime, never printed). Live changes made by the USER:
+  record_cache_events() function. Pending for the USER: run
+  20260928000000_meta_description.sql in the SQL editor.
+- Render: deploys 71b8da5 -> 1a16e31 triggered by pushes. PENDING USER
+  ACTION: change Health Check Path from "/" to "/api/ping" (the single
+  biggest bandwidth fix). NODE_OPTIONS=--max-old-space-size=400 assumed still
+  set. Build Command still lacks the public/ copy (low priority).
+- Cloudflare R2: OPTIONAL user action — admin bucket CORS rule allowing PUT
+  from https://janatardipak.com with Content-Type and Cache-Control headers
+  (otherwise uploads use the proxied fallback).
+- Facebook: resolver uses facebookexternalhit UA from Render's IP (verified).
+- Claude Code: .claude/settings.local.json now allows `Bash(git rm:*)` and
+  `Bash(rm supabase/migrations/:*)`; the file must be a single JSON object.
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS:
+--------------------------------------------------------------------------------
+Facebook embeds status:
+  - POSTS: SOLVED. Short links resolve server-side (Way R); regular posts
+    render via fb-post. Only 2 of 163 post links are set to Embed; switching
+    more is an editor action (or a bulk production-data write needing
+    explicit approval).
+  - REELS/VIDEOS: most PLAY (8/9 tested). Reels with licensed or third-party
+    content are blocked BY META ("can't be embedded because it may contain
+    content owned by someone else"); currently /reel/2281911162607324 on post
+    6438d81a (set to Embed — shows Meta's "Unavailable" frame).
+    DECISION PARKED pending Mr. Dipak's input on what to do for
+    rights-blocked reels. Cataloged options: (a) leave as Button links
+    (Way 0, zero cost, available now); (b) poster/teaser card from
+    posts.thumbnail_url linking to Facebook (Way 2); (c) mirror the video to
+    R2 via local yt-dlp + ffmpeg (Way 5/6 — copyright risk, music baked in,
+    Facebook ToS); (d) upload to a site-owned unlisted YouTube channel
+    (Way 7 — Content ID claims likely for licensed music). Way 3/4 (OG scrape
+    / third-party preview) remain possible poster sources. Do not build any
+    until the user relays the decision.
+  - Caption toggle: live in the editor; works for videos/reels; Meta ignores
+    it on regular posts.
+User actions outstanding (in priority order):
+  1. Render Health Check Path -> /api/ping.
+  2. Run meta_description SQL (admin SEO form).
+  3. Optional R2 CORS for direct admin uploads.
+  4. Create the UptimeRobot monitor (from 09-19) if not done.
+  5. Fix .claude/settings.local.json to a single JSON object if not done.
+Verification to do after deploy:
+  - Render bandwidth graph should flatten within a day of the health-check
+    change; cache_metrics rows should grow in ~10-minute steps, not per hit.
+  - Render logs: watch for "[facebook-resolver] kept original" (resolution
+    failures) and "[keep-alive] Supabase ping" lines (next due UTC days:
+    09-28, 10-02, ...).
+Carried over: lib/changelog-data.ts (admin Changelogs tab) lacks entries for
+  09-17 missions B-E, v1.16.0, and v1.17.0; Render Build Command public/ copy;
+  deferred opt-ins (admin 2FA, cron scheduling, CLOUDFLARE_API_TOKEN).
+Resumability: working tree clean at the docs commit on origin/main (see git
+  log). No servers running. Scratchpads emptied.
+================================================================================
+END OF INTERIM DOSSIER (append further 2026-09-24 work below this line)
+================================================================================

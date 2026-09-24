@@ -105,6 +105,16 @@ Today's Checkpoint (2026-09-24):
     - app/(site)/posts/[id]/page.tsx
     - components/posts/PostEmbed.tsx
     - components/embeds/FacebookEmbed.tsx
+  * Security/audit (mid-day): tsc and eslint (--max-warnings=0) clean.
+    Only the Supabase URL/anon key are NEXT_PUBLIC_; no "use client"
+    file imports a server-only module. Every app/api route is guarded
+    except the intentionally public /api/ping; every admin server
+    action calls requireAdmin/requireOwner/requireProfile. proxy.ts CSP
+    unchanged and clean. No unbounded collections or unhandled promises;
+    no code changes required. Temporary test harnesses removed (all
+    outside the repo).
+  * Docs: added the interim 2026-09-24 session dossier and committed the
+    previously untracked 2026-09-19 dossier.
 
 --------------------
 

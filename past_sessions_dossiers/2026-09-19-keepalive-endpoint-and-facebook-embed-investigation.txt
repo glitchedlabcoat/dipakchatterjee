@@ -1,0 +1,702 @@
+================================================================================
+CHRONOLOGICAL SESSION CONTEXT DOSSIER: /api/ping DUAL-LAYER KEEP-ALIVE (SHIPPED),
+FACEBOOK EMBED INVESTIGATION (share/v SHORT-LINK ROOT CAUSE FOUND, "WAY 1"
+FALLBACK BUILT BUT REPORTED NOT WORKING BY THE USER, UNCOMMITTED)
+================================================================================
+
+1. SESSION METADATA & TIMELINE OVERVIEW:
+--------------------------------------------------------------------------------
+- Working Session Date: 2026-09-19
+- File Name: past_sessions_dossiers/2026-09-19-keepalive-endpoint-and-facebook-embed-investigation.txt
+- Repository: dipakchatterjee (Next.js 16.3.4, App Router, Turbopack, Supabase
+  Postgres/Auth/Storage, Cloudflare R2), deployed on Render (512MB RAM, Node web
+  service, `output: "standalone"`). Git remote:
+  https://github.com/glitchedlabcoat/dipakchatterjee.git. HEAD at end of session:
+  d6d6986 on origin/main, PLUS one uncommitted, unpushed modification
+  (components/embeds/FacebookEmbed.tsx — see Section 4 and Section 6).
+- Core Objective (in order):
+    (1) Housekeeping: rename the session tab; then ingest all 8 prior dossiers in
+        past_sessions_dossiers/ and confirm readiness (no code).
+    (2) Build, verify, and push a dual-layer keep-alive endpoint: a fast health
+        route that keeps the Render web instance awake for an external uptime
+        monitor (UptimeRobot), plus a once-per-4-days lightweight Supabase query
+        so Supabase's 7-day inactivity auto-pause never triggers.
+    (3) Adopt a mandatory per-task "Discord announcement" response protocol for
+        the rest of the day (text-only; nothing is ever posted to Discord by the
+        assistant).
+    (4) Plan (no code) every possible way to make public Facebook embeds — in
+        particular reels, which the user believed fail because of licensed
+        music — work on the public site "like YouTube", without disturbing
+        Mr. Dipak (the site owner / subject of the site) in any way.
+    (5) Begin building those ways one at a time with a user check after each.
+        Only "Way 1" (smarter failure detection) was built. The user checked it
+        and reported "way 1 doesn't work"; the session was then closed.
+        THE REASON IT "DOESN'T WORK" FOR THE USER IS UNDIAGNOSED (see Section 6).
+    (6) End-of-day: this dossier.
+- Key Constraints:
+    * Zero/near-zero hosting cost (Render free-ish tier, 512MB; Supabase free
+      tier; Cloudflare R2 free tier with no egress fees).
+    * AGENTS.md: this is a non-standard, pinned Next.js 16 — consult
+      node_modules/next/dist/docs/ before writing Next-API-touching code
+      (done for route.md).
+    * Commit/push ONLY on explicit user instruction ("push it" was given once,
+      for the keep-alive endpoint; NEVER given for the Facebook work).
+    * Never write a live secret into a committed file (the ad-hoc DB queries used
+      SUPABASE_SERVICE_ROLE_KEY read from .env.local at runtime; the value was
+      never printed or written anywhere).
+    * "Do not disturb Mr. Dipak": no ideas requiring his Facebook login, Page
+      access token, re-uploading, changing audio, or changing his privacy
+      settings.
+    * No Meta Business Verification (GSTIN) => Graph API oEmbed is unavailable.
+    * Render 512MB has a documented OOM history => no heavy work (video download,
+      headless browser) on Render; run such things locally or in CI.
+    * Facebook bot-blocks browser-like server requests (see Step 20 for the
+      exact measured behavior).
+    * Windows dev box; tool shells: Git Bash (POSIX) and PowerShell. `python` is
+      NOT installed (Microsoft Store shim only). Heredoc'd Windows paths with
+      backslashes get their backslashes eaten — use forward slashes
+      ("C:/Program Files (x86)/...") in scripts.
+
+2. CHRONOLOGICAL EVENT & FIX LEDGER:
+--------------------------------------------------------------------------------
+
+[Step 1 — Tab rename request]
+  * Event / Issue: user asked to name the tab "janatardipak-2026-09-19".
+  * Root Cause: no assistant tool can rename a session/tab (it is a built-in
+    /rename slash command).
+  * Resolution: told the user to run `/rename janatardipak-2026-09-19`. The user
+    then ran /rename with no args; the harness reported "Session renamed to:
+    rename-tab-session". No repo change.
+  * Associated Commit Hash: none.
+
+[Step 2 — Dossier ingestion]
+  * Event / Issue: user asked to read all dossiers in past_sessions_dossiers/ and
+    confirm (<100 words) latest milestone, pending tasks, readiness.
+  * Resolution: Glob found 8 files (2026-09-11, -12, -13, -14, -15, -16, and two
+    for -17). All 8 were read in full. Confirmation given: latest completed
+    milestone = commit 293fd7d (Supabase autoRefreshToken ticker disabled on
+    createPublicClient()/createServiceClient(), the real Render OOM leak);
+    pending = verify Render memory logs stay flat, add a lib/changelog-data.ts
+    entry for the 2026-09-17 work, Render Build Command still lacks the
+    `public/` copy, plus deferred opt-ins (admin 2FA, Meta Graph API +
+    integration_settings migration, complaint-cleanup cron, CLOUDFLARE_API_TOKEN).
+  * Associated Commit Hash: none.
+
+[Step 3 — Keep-alive endpoint: design + environment discovery]
+  * Event / Issue: user asked for a "drop-in Express/Node route handler" with
+    GET /healthz or /api/ping returning 200 { status:"ok", uptime:
+    process.uptime() }, plus a conditional Supabase query when
+    `new Date().getDate() % 4 === 0`, guarded by an in-memory
+    `lastDbPingDate = 'YYYY-MM-DD'` flag, logging cleanly and never throwing;
+    also asked for the exact SQL for a dummy table (e.g. ping_check) and the
+    exact UptimeRobot path.
+  * Root Cause of the mismatch: the app is Next.js 16 App Router, not Express.
+    Read: proxy.ts (its matcher is `/((?!_next/static|_next/image|favicon.ico).*)`
+    minus prefetch requests — so /api/* is covered by the CSP-nonce part; the
+    Supabase/OTP admin gate is scoped to /admin and /dashboard only, so a public
+    /api/ping is neither redirected nor auth-gated), utils/supabase/public.ts
+    (createPublicClient(), auto-refresh ticker disabled — required, see the
+    293fd7d leak fix), app/api/cron/purge-complaints/route.ts (route-handler
+    convention: `export async function GET`, NextResponse.json),
+    node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/route.md
+    (HEAD is a supported explicit method; the doc does not promise an automatic
+    HEAD), and types/database.types.ts (site_settings has an `id: string`
+    column; site_settings is anon-readable via RLS per earlier dossiers).
+  * Resolution: see Step 4.
+  * Associated Commit Hash: none (design only).
+
+[Step 4 — Keep-alive endpoint: implementation]
+  * Event / Issue: implement it.
+  * Resolution: new file app/api/ping/route.ts (Section 4 has the exact logic).
+    Deviations from the literal request, each deliberate and disclosed to the user:
+      a) Next.js route handler instead of Express.
+      b) NO dummy table / NO migration: reads the existing, already
+         anon-readable `site_settings` table
+         (`.from("site_settings").select("id").limit(1)`), so the requested
+         "CREATE TABLE ping_check" SQL was not needed.
+      c) Cadence uses the UTC epoch-day count, NOT getDate() % 4:
+         `Math.floor(now.getTime() / 86_400_000) % 4 === 0`. Reason: day-of-month
+         multiples of 4 leave a gap of up to 7 days across month boundaries
+         (28th -> 4th in a 31-day month = exactly 7 days), which is precisely
+         Supabase's pause threshold. Epoch days give a strict 4-day cycle. The
+         user was told how to revert (change the single `isDueDay` line).
+      d) The DB query is fire-and-forget (`void (async () => {...})()`), so the
+         HTTP response never waits on it and can never fail because of it.
+      e) `lastDbPingDate` is set ONLY on success (spec said "update on run"),
+         so a failed attempt is retried on the next ping that day; a
+         module-level `dbPingInFlight` boolean prevents concurrent duplicate
+         queries; failures are `console.error`'d, never thrown.
+      f) Both GET and HEAD are exported (UptimeRobot's default check method is
+         HEAD); `export const dynamic = "force-dynamic"`; response header
+         `Cache-Control: no-store`.
+      g) Uses createPublicClient() (auto-refresh ticker off) so this endpoint
+         cannot reintroduce the 293fd7d leak.
+    Log lines: `[keep-alive] Supabase ping OK (YYYY-MM-DD)` and
+    `[keep-alive] Supabase ping FAILED: <message>`.
+  * Associated Commit Hash: d6d6986 (Step 8).
+
+[Step 5 — Keep-alive endpoint: verification]
+  * Event / Issue: prove it works.
+  * Resolution:
+      - `npx tsc --noEmit` and `npx eslint app/api/ping/route.ts`: clean (only
+        harmless "npm notice ... New major version of npm available! 11.17.0 ->
+        12.0.2" text).
+      - Started `next dev -p 3111`; `curl -i http://localhost:3111/api/ping` =>
+        `HTTP/1.1 200 OK`, `cache-control: no-store`,
+        `content-type: application/json`, body
+        `{"status":"ok","uptime":4.7178442}`; `curl -I` (HEAD) => 200.
+        (The response also carried proxy.ts's CSP/security headers.)
+      - Ran the SAME Supabase query from a throwaway script (`__ping-check.mjs`,
+        written to the repo root, executed, then deleted; never committed) using
+        the anon key and `{auth:{autoRefreshToken:false,persistSession:false,
+        detectSessionInUrl:false}}`: result `{ rows: 1, error: null }`.
+      - Today's epoch-day % 4 was 3 (computed via `$(( $(date -u +%s) / 86400 % 4 ))`),
+        i.e. today was NOT a due day, so the route's DB branch did NOT execute
+        in the live test; only the query itself was verified separately.
+        The FIRST real DB ping will therefore occur on 2026-09-20 (UTC),
+        because 2026-09-20's epoch-day % 4 == 0; then 09-24, 09-28, 10-02, ...
+  * Operational note: to stop the test server, `taskkill //F //IM node.exe` was
+    used — that kills EVERY node.exe on the machine. If a Turbopack panic
+    (STATUS_DLL_INIT_FAILED / 0xc0000142) ever appears, the documented cure is
+    `rm -rf .next` (see 2026-09-14 dossier). Later steps used a narrow
+    port-based kill instead.
+  * Associated Commit Hash: none (verification only).
+
+[Step 6 — UptimeRobot target URL question]
+  * Event / Issue: user asked to have UptimeRobot ping the Render instance
+    instead of the public domain.
+  * Root Cause / finding: `Grep onrender\.com` over the repo (excluding
+    node_modules) found NO matches, so the Render service's `.onrender.com`
+    hostname is not recorded anywhere in the repo.
+  * Resolution: told the user to use
+    `https://<your-service-name>.onrender.com/api/ping` (copy the hostname from
+    the Render dashboard), HTTP(s) monitor, 5-minute interval, HEAD is fine.
+    Optionally a second monitor on https://janatardipak.com/api/ping (safe: the
+    in-memory flag still limits the DB query to once per due day) and optionally
+    set Render's Health Check Path to /api/ping (separate from keep-alive). No
+    code change.
+  * Associated Commit Hash: none.
+
+[Step 7 — Changelog convention check]
+  * Event / Issue: user said "push it". Per the standing convention (memory:
+    project_changelog_running_checkpoint), checked whether the top changelog
+    entry's date equals today.
+  * Root Cause / finding: top entry was `## [v1.15.0] - 2026-09-17` in
+    CHANGELOG.md and `[v1.15.0] - 2026-09-17` in CHANGELOG.txt; today is
+    2026-09-19, so a NEW version header was required, not an append to a
+    "Today's Checkpoint".
+  * Resolution: added `## [v1.16.0] - 2026-09-19` (### Added + ### Files
+    Changed) to CHANGELOG.md and `[v1.16.0] - 2026-09-19` (bullet + "Files
+    edited (paths only):") to CHANGELOG.txt, immediately above the v1.15.0
+    entries. First attempt used a Python heredoc which FAILED ("Python was not
+    found; run without arguments to install from the Microsoft Store"); redone
+    with the Edit tool. CHANGELOG.txt verified pure ASCII via `file`. Per the
+    memory rule (feedback_changelog_commit_hash) the entry does NOT reference
+    its own commit hash.
+  * Associated Commit Hash: d6d6986.
+
+[Step 8 — Commit and push of the keep-alive endpoint]
+  * Event / Issue: commit + push on explicit "push it".
+  * Resolution: `git add app/api/ping/route.ts CHANGELOG.md CHANGELOG.txt`
+    (explicit paths), commit
+    "feat(api): add /api/ping dual-layer keep-alive for Render and Supabase"
+    with the Co-Authored-By: Claude Sonnet 5 trailer; `git push origin main`
+    => `aa166d4..d6d6986  main -> main`. Git printed only CRLF-normalization
+    warnings ("LF will be replaced by CRLF the next time Git touches it").
+    Working tree was clean afterwards. The Discord CI notification for this push
+    was NOT observed/verified by the assistant. `lib/changelog-data.ts` (the
+    admin Changelogs-tab data source) was NOT updated — it is still behind
+    (it already lacked the 2026-09-17 missions B-E).
+  * Associated Commit Hash: d6d6986.
+
+[Step 9 — "Discord announcement" per-task protocol adopted (today only)]
+  * Event / Issue: user directed that for every bug fix / refactor / technical
+    issue today, every response must have 3 parts: (1) an "Update in Progress"
+    Discord-formatted message beginning with the exact role ping
+    <@&1549290786259083285>, energetic, emoji bullets; (2) the actual fix/work;
+    (3) an "Update Finished" message beginning with the same ping with four
+    sections (What Was Happening / The Permanent Fix / Lab-Tested & Verified /
+    Long-Term Stability) plus a high-energy sign-off.
+  * Resolution: acknowledged. Explicitly NOT saved to persistent memory
+    (user scoped it to "today"). These messages are text in the assistant's
+    replies only; nothing is ever sent to Discord by the assistant (the
+    GitHub Actions workflow .github/workflows/discord-notify.yml remains the
+    only Discord sender). Commitment recorded that Part 3 must only claim
+    testing that was actually run.
+  * Associated Commit Hash: none.
+
+[Step 10 — "do absolutely nothing" / "stand by" x3]
+  * Event / Issue: user said "do absolutely nothing.", then "stand by" three
+    times. Assistant acknowledged each briefly, took no action.
+  * Associated Commit Hash: none.
+
+[Step 11 — Facebook embeds: research/plan (no code), user hypothesis = music]
+  * Event / Issue: user asked (no code) for all possible ways to make every
+    public Facebook embed — "regardless of using music in reels" — work on the
+    site, like YouTube, without disturbing Mr. Dipak; multiple ways with
+    detailed instructions.
+  * Root Cause (as hypothesized at the time, LATER SHOWN LIKELY WRONG — see
+    Step 19): Meta blocks licensed-music reels from playing off-platform. The
+    2026-09-15 dossier had recorded one reel (post 6438d81a-14f9-4b98-b4f9-
+    cb85286040ee, URL https://www.facebook.com/share/r/19bJDRRs5c/) showing
+    "Video Unavailable" inside a correctly-mounted XFBML iframe, attributed to
+    "Meta-side content availability" — never proven to be music.
+  * Resolution: read components/embeds/FacebookEmbed.tsx (v3: XFBML fb-post/
+    fb-video, MutationObserver + 8000ms FALLBACK_TIMEOUT_MS iframe-mount
+    detection, tier-2 direct plugins/{post,video}.php iframe, tier-3
+    ViewOnFacebookCard), found `posts.thumbnail_url`/`thumbnail_path` in
+    types/database.types.ts (~lines 605-606, 621-622, 637-638; used by
+    components/posts/PostsFeed.tsx line 27), and app/api/admin/upload/route.ts
+    (MAX_IMAGE_BYTES = 10MB line 22, MAX_VIDEO_BYTES = 25MB line 32).
+    Proposed: Step 0 diagnostic (logged-out private window: open the reel, and
+    open https://www.facebook.com/plugins/video.php?href=<encoded>&show_text=false)
+    then Ways:
+      Way 0 (no code, available now): in the post editor switch the link from
+        "Embed" to "Button" ("Switch to Button").
+      Way 1: detect failure properly (SDK xfbml.ready) -> fallback card.
+      Way 2: poster card from the existing posts.thumbnail_url + Play overlay
+        opening Facebook in a new tab.
+      Way 3: server-side Open Graph scrape (og:image/og:title) cached with
+        unstable_cache (flagged low-confidence: Facebook bot-blocks).
+      Way 4: third-party preview/embed service (Iframely/Microlink) —
+        thumbnail+title only; free-tier terms unverified.
+      Way 5: self-host a copy: local yt-dlp + ffmpeg (720p, ~1.2 Mbps, <25MB) ->
+        attach as normal post video media (already supported) -> R2. Music baked
+        into the file => copyright risk; muting also removes speech; Facebook
+        ToS discourages downloading; yt-dlp is brittle; run locally, never on
+        Render.
+      Way 6: automate Way 5 with a GitHub Actions workflow_dispatch job
+        (datacenter IPs likely blocked by Facebook; needs R2 keys as GitHub
+        secrets, which the user must set — a prior `gh secret set` was blocked
+        by the sandbox classifier).
+      Way 7: upload to a site-owned (NOT Mr. Dipak's) unlisted YouTube channel
+        and use the existing YouTube embed path (Content ID claims possible).
+    Ruled out (disturb Dipak or hard walls): Graph API oEmbed (Business
+    Verification/GSTIN), Page access tokens / "connect your Page" widgets,
+    asking him to re-upload/change audio/privacy, headless browser on Render.
+    Suggested order: Step 0, Way 0 for any broken reel, Ways 1+2 as baseline,
+    Way 5 only for high-value reels.
+  * Associated Commit Hash: none.
+
+[Step 12 — User: "build all of them one by one ... call me to check"]
+  * Event / Issue: user asked to build all ways sequentially, testing which
+    works, and to "call me" after each build. PushNotification (deferred tool)
+    was loaded via ToolSearch.
+  * Resolution: plan = build Way 1 first, stop, notify. PushNotification was
+    later called and returned "Push not sent — mobile push is disabled in
+    /config." (So the user was not notified out-of-band; the chat message was
+    the notification.)
+
+[Step 13 — Production data reconnaissance (read-only)]
+  * Event / Issue: need real Facebook URLs to test with.
+  * Resolution: read-only REST queries against Supabase with the service-role
+    key (read from .env.local at runtime; nothing printed/persisted) over
+    `posts?select=id,title,links`.
+  * Findings: 191 posts; 184 Facebook links total; 182 have `"type":"button"`;
+    ONLY 2 are `"type":"embed"`:
+      - post 68da02be-4277-48f4-8dfd-35ad9486261a:
+        https://www.facebook.com/dipak.chatterjee.180/posts/pfbid02HSg5HYDB23k7De2B6UQBLRq4MYKAdrvQnv1bd1wwNcxS2xywxMnpqX1dHVrVsHjl
+      - post b48e3665-3b7d-46ef-a062-520e1c7a97db:
+        https://www.facebook.com/share/p/1DSbpaqaMj/
+    Post 6438d81a-14f9-4b98-b4f9-cb85286040ee (the old "Video Unavailable"
+    reel) now has `links: []`. In other words, someone already flipped nearly
+    every Facebook link to Button, so the public site currently shows almost
+    no Facebook embeds at all. Link JSON shape:
+    {"id":"<uuid>","url":"<facebook url>","type":"embed"|"button"} (optional
+    label).
+    Many stored URLs are `https://www.facebook.com/share/v/<code>/` (videos/
+    reels) and `/share/p/<code>/` (posts).
+
+[Step 14 — Real-browser harness (scratchpad, outside the repo)]
+  * Event / Issue: need a real browser to observe Facebook's plugin behavior
+    (curl is bot-blocked by Facebook — proven 2026-09-15).
+  * Resolution: created C:\Users\rikdu\AppData\Local\Temp\claude\
+    c--Users-rikdu-Documents-GitHub-dipakchatterjee\b0583716-f982-47fb-b447-
+    7f62e6a17dd9\scratchpad\fbtest\ with its own `npm init -y` and
+    `npm i playwright-core` (so the repo's package.json/package-lock.json were
+    NOT touched). Files there: page.html (loads connect.facebook.net/en_US/
+    sdk.js, builds fb-video/fb-post divs from ?u=, subscribes to
+    FB.Event xfbml.ready and xfbml.render into window.__events), server.mjs
+    (static server on port 4100), run.mjs (Playwright + system Edge via
+    executablePath "C:/Program Files (x86)/Microsoft/Edge/Application/
+    msedge.exe", headless, realistic Edge UA, waits 16s, prints events, iframe
+    boxes, and cross-frame body text), resolve.mjs (navigates each share URL and
+    prints the final URL, title, canonical/og tags), comp.mjs (drives the real
+    app component, Step 21).
+  * Issue hit: first run failed with "Failed to launch chromium because
+    executable doesn't exist at C:Program Files (x86)MicrosoftEdge..." because
+    backslashes in the heredoc'd path were stripped. Fixed by using forward
+    slashes (sed replaced the executablePath).
+
+[Step 15 — TEST A: 8 stored share/v links + 1 pfbid post in the XFBML plugin]
+  * Event / Issue: load
+    https://www.facebook.com/share/v/{14psGv8vWSy, 14rLsUHaMko, 1CVvJ7ojL5,
+    1DSXpXULSQ, 182NhoYUKv, 1JRxTUp5tH, 1BzLYLF4Ea, 1YWg48mRcw}/ as fb-video and
+    the pfbid post as fb-post.
+  * Observed: ALL 8 share/v links rendered an iframe (360x203, fb-xfbml-state=
+    "rendered") whose body text was "Video Unavailable This video may no longer
+    exist, or you don't have permission to view it. Learn more". The pfbid post
+    rendered normally (iframe 360x679, real post text). Events captured:
+    only `[{"ev":"render","t":1838}]` — NO `xfbml.ready` event at all.
+  * Root Cause: NOT music (all 8 fail identically, including videos that have no
+    reason to be music-restricted). The common factor is the `/share/v/<code>/`
+    short-link URL form, which the plugin cannot resolve (see Step 16/17).
+    This contradicts the earlier "music" hypothesis (Step 11) and the 2026-09-15
+    dossier's "Meta-side availability" attribution for share/r links.
+
+[Step 16 — TEST B: what do the share/v links resolve to in a real browser?]
+  * Observed (resolve.mjs, Edge, ~2.5s after domcontentloaded):
+      share/v/14psGv8vWSy -> https://www.facebook.com/dipak.chatterjee.180/posts/
+        pfbid02cXeXygvVWy3gZ9GyTfz8qBpVNNJtmJwv1WbfViyPyXndnWfTaAz... (a POST that
+        contains the video; canonical is a /posts/ URL)
+      share/v/14rLsUHaMko -> .../dipak.chatterjee.180/videos/2057477374669271/
+        ?rdid=... ; canonical + og:url = https://www.facebook.com/reel/2057477374669271/ ;
+        og:type video.other
+      share/v/1CVvJ7ojL5 -> .../videos/1525084498154035/?rdid=... ; canonical =
+        https://www.facebook.com/reel/1525084498154035/
+      share/v/1DSXpXULSQ -> .../dipak.chatterjee.180/videos/491706716654053/?rdid=...
+        (canonical is a /videos/<percent-encoded-title...> form)
+    The stored `rdid` query param is a per-redirect token and should be stripped.
+
+[Step 17 — TEST C: canonical URLs in the XFBML fb-video plugin]
+  * Observed: fb-video with https://www.facebook.com/reel/2057477374669271/,
+    https://www.facebook.com/reel/1525084498154035/,
+    https://www.facebook.com/dipak.chatterjee.180/videos/491706716654053/,
+    https://www.facebook.com/dipak.chatterjee.180/videos/2057477374669271/ ALL
+    rendered real players (frame text like "Play -1:39 Mute Enter Fullscreen
+    Click to watch on Facebook Dipak Chatterjee"; iframe heights 636/636/201/636).
+    Events: `xfbml.ready` fired 4 times with `type:"video"` at t = 2599, 2659,
+    2695, 3206 ms, then one `render` at 3775 ms. The `ready` message carries NO
+    per-element id (`msg.id` undefined).
+  * Root Cause / conclusion: the "Video Unavailable" failures for share/v links
+    are a URL-resolution problem in Meta's plugin. Feeding the RESOLVED
+    canonical URL makes the same videos play. Some of those reels may well
+    contain music, and they play — so music is at minimum not the universal
+    blocker. `xfbml.ready` (type "video") is a reliable positive signal: it
+    fires for playable videos and never fired in Test A's broken cases.
+
+[Step 18 — TEST D: can a plain server-side request resolve share links?]
+  * Event / Issue: could Render resolve short links itself?
+  * Observed (Node `fetch(url, {redirect:"manual"})` from THIS machine, a
+    residential IP; Render's datacenter IP is UNTESTED):
+      - browser User-Agent (Chrome/126): HTTP 400, no Location.
+      - "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)":
+        HTTP 302 with Location = canonical, e.g. share/v/14rLsUHaMko/ ->
+        https://www.facebook.com/dipak.chatterjee.180/videos/2057477374669271/?rdid=...
+        ; share/v/1CVvJ7ojL5/ -> .../videos/1525084498154035/?rdid=... ;
+        share/p/1DSbpaqaMj/ -> https://www.facebook.com/dipak.chatterjee.180/posts/
+        pfbid021CRpAMoButG8yPNdci6D7nro1drus3q...
+      - "curl/8.0": same 302 + Location as the bot UA.
+    So a NON-browser UA + manual redirect returns the canonical URL in the
+    Location header with no body parsing needed. (No body/canonical-tag data was
+    obtained this way: the 302 has no useful body.)
+
+[Step 19 — Way 1 implementation: components/embeds/FacebookEmbed.tsx]
+  * Event / Issue: build Way 1 = replace "did an iframe appear" detection for
+    videos with the SDK's xfbml.ready signal, and go straight to the outbound
+    card (skipping the tier-2 direct iframe, which uses the same href and fails
+    the same way) when the SDK loaded but no player became ready in 8000ms.
+  * Resolution (exact logic):
+      - `type XfbmlReadyMessage = { type?: string }`; `Window.FB` typing extended
+        with `Event: { subscribe(event, cb), unsubscribe(event, cb) }`.
+      - `type Failure = "sdk" | "unplayable"`. State `failure: Failure | null`
+        replaces the old boolean `xfbmlFailed`; `iframeFailed` retained.
+      - State `readyUrl: string | null` + derived `playerReady = readyUrl ===
+        cleanUrl` (so a new link never inherits a previous link's "ready").
+        `readyListenerRef` holds the subscribed callback.
+      - `parseAndListen = useCallback(...)` (deps [cleanUrl, isVideo]): if
+        `window.FB?.XFBML` exists: for videos, subscribe ONCE per mount to
+        "xfbml.ready" BEFORE parsing (callback sets `readyUrl` to cleanUrl when
+        `msg?.type === "video"`), then `FB.XFBML.parse(container)`. Used by both
+        the re-parse effect and next/script's `onReady` (replacing the previous
+        inline parse call).
+      - Re-parse effect deps [cleanUrl, failure, parseAndListen]; cleanup
+        unsubscribes `xfbml.ready` and nulls the ref.
+      - Failure-detection effect deps [cleanUrl, failure, isVideo, playerReady]:
+        VIDEO branch: if `playerReady` return; else `setTimeout(() =>
+        setFailure(window.FB ? "unplayable" : "sdk"), FALLBACK_TIMEOUT_MS)`.
+        POST branch: unchanged MutationObserver-for-<iframe> + timeout, on
+        timeout `setFailure("sdk")`.
+      - Render: `failure === "unplayable"` -> ViewOnFacebookCard with message
+        "Facebook doesn't let this video play outside of Facebook. You can watch
+        it there."; `failure === "sdk"` -> old chain (tier-2 direct iframe,
+        `iframeFailed` -> card "This embed couldn't be loaded — it may be blocked
+        by a privacy extension or ad blocker.").
+      - File header comment paragraph rewritten to document the two signals and
+        the "xfbml.ready has no per-element id" limitation (with several fb-video
+        embeds on one page, any player's ready counts for all — acceptable here
+        because a post page renders one Facebook embed).
+  * Verification performed: `npx tsc --noEmit` clean; `npx eslint
+    components/embeds/FacebookEmbed.tsx` clean.
+  * Associated Commit Hash: NONE — modification is UNCOMMITTED.
+
+[Step 20 — Way 1 real-component lab test (temporary route)]
+  * Event / Issue: test the actual FacebookEmbed component in a real browser.
+  * Root Cause of a false start: first temp route was created at
+    app/__fbtest/page.tsx; Next.js App Router treats folders prefixed with `_`
+    as PRIVATE (not routable), so nothing rendered (all three cases showed
+    iframe:false, card:false). Renamed to app/fbtesttmp/page.tsx.
+  * Resolution: temp Server Component page reading `?u=`, calling
+    getEmbedInfo(u) from lib/embed.ts and rendering <FacebookEmbed embed=
+    sourceUrl=/>, run under `next dev -p 3111`, driven by comp.mjs (Edge).
+    Results:
+      - BROKEN https://www.facebook.com/share/v/14rLsUHaMko/ : t=5s iframe
+        present, no card; t=11.5s iframe gone, card shown with the new
+        "Facebook doesn't let this video play outside of Facebook..." message.
+      - WORKING https://www.facebook.com/reel/2057477374669271/ : iframe present
+        at 5s and at 11.5s, no card.
+      - POST pfbid URL: iframe present at 5s and 11.5s, no card (unchanged).
+    Temp route deleted afterwards; dev server (3111) and static server (4100)
+    stopped via `Get-NetTCPConnection ... | Stop-Process` (port-scoped, verified
+    0 listeners). `git status --short` afterwards showed ONLY
+    ` M components/embeds/FacebookEmbed.tsx`.
+
+[Step 21 — User verdict]
+  * Event / Issue: after being told to check, the user replied "way 1 doesn't
+    work. but for now, wrap up, close shop. i'll check the other ways the next
+    day".
+  * Root Cause: UNKNOWN / UNDIAGNOSED. The assistant did not get details of how
+    the user tested or what they saw. My isolated test passed, so the
+    discrepancy must be explained tomorrow. Candidate explanations (all
+    unverified) are listed in Section 6.
+  * Resolution: no further debugging was done (user closed the day). Way 1
+    stays uncommitted.
+
+[Step 22 — This dossier]
+  * Event / Issue: end-of-day dossier requested in the standard 6-section format.
+  * Resolution: this file. Associated Commit Hash: pending (NOT committed; the
+    user has not asked for a push of it).
+
+3. ARCHITECTURAL DECISIONS & "WHY" RATIONALE:
+--------------------------------------------------------------------------------
+- /api/ping is a Next.js route handler, not Express: the codebase is Next 16 App
+  Router on Render `output: "standalone"`. It lives under app/api/ping so it
+  inherits proxy.ts's CSP but bypasses the admin auth gate (scoped to /admin).
+- No dummy table: an existing anon-readable table (site_settings) is a valid
+  "wake the DB" read, avoids a migration on a production DB that has had
+  migration-tracking drift ("remote":"" oddities, 2026-09-14/15), and avoids a
+  new RLS surface.
+- Epoch-day % 4 instead of getDate() % 4: getDate() % 4 gives a 7-day gap from
+  the 28th to the 4th of 31-day months = Supabase's pause threshold. Epoch-day
+  is an exact 4-day cycle. (Trade-off: due days are not "multiples of 4 of the
+  month"; UTC boundaries, not IST.)
+- Fire-and-forget DB call + success-only flag + in-flight guard: the health
+  response must be instant and can never depend on the DB; retry-on-failure at
+  most every ping interval; no concurrent duplicate queries.
+- createPublicClient() for the ping: retains the autoRefreshToken:false /
+  persistSession:false / detectSessionInUrl:false options that fixed the real
+  Render OOM leak (293fd7d). Constructing a client only once per 4 days makes
+  the residual cost negligible.
+- Both GET and HEAD handlers: UptimeRobot commonly probes with HEAD; the Next
+  docs list HEAD as an explicit method and do not promise auto-HEAD.
+- Changelog: new v1.16.0 header (not a checkpoint append) because today's date
+  differs from the top entry's date, per the standing convention.
+- Facebook: hypotheses were treated as hypotheses. The music theory was tested
+  and effectively refuted for the tested links; the working root cause candidate
+  is unresolved share short-links. Real-browser evidence (Playwright + system
+  Edge) was preferred over curl because Facebook bot-blocks curl/browser-UA
+  server requests (proven 2026-09-15, re-observed today: browser-UA fetch -> 400).
+- Way 1 design choices: (a) xfbml.ready as the success signal for VIDEOS only
+  (validated empirically: fires for playable, absent for "Video Unavailable");
+  (b) unavailable -> skip tier-2 iframe (same href, same failure); (c) keep the
+  old chain when window.FB is undefined (SDK blocked) because the direct plugin
+  iframe may still load; (d) post plugin path untouched (xfbml.ready was not
+  measured for fb-post); (e) readyUrl-vs-cleanUrl comparison instead of a
+  boolean to avoid stale "ready" across URL changes; (f) subscribe BEFORE parse
+  so the ready event for that parse cannot be missed.
+- KNOWN DESIGN RISK in Way 1 that may explain the user's "doesn't work":
+  if xfbml.ready fails to fire in some environment even for playable videos
+  (Safari/Firefox tracking protection, extensions, slow networks > 8s, ready
+  fired before the listener attached), a playable video would be REPLACED by the
+  "Facebook doesn't let this video play..." card — a regression. It also never
+  makes a broken share/v link actually PLAY; it only degrades gracefully. If the
+  user's expectation was "embeds must play", Way 1 by design cannot satisfy it.
+- Newly discovered candidate ("Way R", NOT built): server-side share-link
+  resolver. Resolve `/share/{v,r,p}/<code>` via `fetch(url, {redirect:"manual",
+  headers:{"user-agent":"facebookexternalhit/1.1 (+http://www.facebook.com/
+  externalhit_uatext.php)"}})`, read the `Location` header, strip `?rdid=`
+  (and other tracking params), THEN re-run getEmbedInfo()/classification on the
+  RESOLVED URL (important: share/v/14psGv8vWSy resolves to a /posts/pfbid URL,
+  which must use fb-post, not fb-video), cache via unstable_cache with a long
+  revalidate (server-side, cookie-free, consistent with the project's caching
+  architecture), and on ANY failure fall back to the original URL (so Render's
+  IP being blocked cannot cause a regression). Alternative delivery: one-time
+  local script resolving all 182+ stored links and writing `resolved_url` into
+  the posts.links JSONB (no schema migration; requires explicit user approval
+  to write production data). Render-IP behavior is unknown until deployed and
+  observed in Render logs.
+- Alternatives evaluated and discarded today: see Step 11 "Ruled out" list.
+
+4. COMPLETE REPOSITORY IMPACT (Files Touched):
+--------------------------------------------------------------------------------
+Created (committed, d6d6986):
+  - app/api/ping/route.ts — exports `dynamic = "force-dynamic"`; module state
+    `lastDbPingDate: string | null`, `dbPingInFlight: boolean`; constants
+    DB_PING_EVERY_DAYS = 4, MS_PER_DAY = 86_400_000; `maybePingDatabase()`
+    (computes today = now.toISOString().slice(0,10) and isDueDay = floor(epoch
+    ms / MS_PER_DAY) % 4 === 0; returns early if not due / already pinged today /
+    in flight; otherwise runs `createPublicClient().from("site_settings")
+    .select("id").limit(1)` in a fire-and-forget async IIFE, sets
+    lastDbPingDate on success, console.log/console.error, finally resets the
+    in-flight flag); `handle()` calls it then returns `NextResponse.json({
+    status: "ok", uptime: process.uptime() }, { headers: { "Cache-Control":
+    "no-store" } })`; `export async function GET()` and `export async function
+    HEAD()` both call handle().
+Modified (committed, d6d6986):
+  - CHANGELOG.md — new `## [v1.16.0] - 2026-09-19` section (### Added, ### Files
+    Changed) above v1.15.0.
+  - CHANGELOG.txt — new `[v1.16.0] - 2026-09-19` bullet + "Files edited (paths
+    only):" + "--------------------" separator above v1.15.0; ASCII only.
+Modified (UNCOMMITTED, working tree):
+  - components/embeds/FacebookEmbed.tsx — imports `useCallback`; new types
+    `XfbmlReadyMessage`, `Failure`; extended `Window.FB` (Event.subscribe/
+    unsubscribe); state `failure`, `iframeFailed`, `readyUrl` (+ derived
+    `playerReady`), ref `readyListenerRef`; `parseAndListen` useCallback; three
+    effects (ensureFbRoot, parse+listen with unsubscribe cleanup,
+    failure-detection with video/post branches); render branches for
+    "unplayable" (card) and "sdk" (tier-2 iframe -> card); `<Script onReady=
+    {parseAndListen}>`; rewritten header comment block. Unchanged: the fb-post/
+    fb-video markup, FALLBACK_TIMEOUT_MS = 8000, SDK_VERSION = "v20.0",
+    FALLBACK_CONTAINER_CLASS, ensureFbRoot, ViewOnFacebookCard.
+Created then deleted (never committed):
+  - __ping-check.mjs (repo root) — one-off Supabase query check.
+  - app/__fbtest/page.tsx (renamed to app/fbtesttmp/page.tsx, then removed) —
+    temporary test route rendering <FacebookEmbed> from ?u=.
+Created OUTSIDE the repo (scratchpad, not tracked, safe to ignore/delete):
+  - ...\scratchpad\fbtest\{package.json, node_modules\playwright-core, page.html,
+    server.mjs, run.mjs, resolve.mjs, comp.mjs, *.png screenshots}
+Added to this repo by this dossier (uncommitted):
+  - past_sessions_dossiers/2026-09-19-keepalive-endpoint-and-facebook-embed-investigation.txt
+NOT touched: package.json / package-lock.json, proxy.ts, lib/embed.ts,
+lib/facebook-url.ts, components/posts/PostEmbed.tsx, lib/changelog-data.ts, any
+migration, any Supabase table/data (all DB access this session was read-only).
+
+5. EXTERNAL SERVICES, ENVIRONMENT & SECRETS:
+--------------------------------------------------------------------------------
+- Env vars referenced (none added/changed):
+    NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY (client-safe) —
+      used by createPublicClient() and the ad-hoc check script.
+    SUPABASE_SERVICE_ROLE_KEY (server-only) — read from .env.local by throwaway
+      local scripts for read-only REST queries against `posts`; value never
+      printed or written.
+    CRON_SECRET — not touched (unrelated; /api/ping is unauthenticated by
+      design, it reveals only { status, uptime }).
+    R2_*/CLOUDFLARE_API_TOKEN/DISCORD_WEBHOOK — not touched.
+- Render: still expects NODE_OPTIONS=--max-old-space-size=400 (unchanged). The
+  service's .onrender.com hostname is NOT in the repo; the user must copy it from
+  the dashboard. Render's Build Command still lacks the `public/` copy (open
+  low-priority item from 2026-09-17). Render will auto-deploy d6d6986.
+  Optional: set Render Health Check Path to /api/ping.
+- UptimeRobot: monitor NOT yet created (user action) — target
+  https://<service>.onrender.com/api/ping, HTTP(s), 5-min interval, HEAD ok.
+- Supabase: no schema/migration/data changes. One read-only anon query against
+  site_settings (rows: 1, error: null). Free tier auto-pause after 7 days of
+  inactivity is what /api/ping's every-4-days query guards against.
+- Meta/Facebook: XFBML SDK https://connect.facebook.net/en_US/sdk.js (v20.0)
+  observed via Playwright; plugins/{post,video}.php behavior measured (Steps
+  15-18). No credentials involved. Facebook returns 400 to a browser-UA server
+  fetch of share URLs and 302+Location to curl/facebookexternalhit UAs (from a
+  residential IP; Render's IP unmeasured).
+- GitHub: pushed aa166d4..d6d6986 to glitchedlabcoat/dipakchatterjee main;
+  Discord notify workflow expected to fire (not observed).
+- Discord: role ping <@&1549290786259083285> used only as reply text.
+- Cloudflare R2: not touched (only discussed as a host for self-hosted video).
+
+6. PENDING TASKS, RESUMABILITY & NEXT ACTIONS:
+--------------------------------------------------------------------------------
+STARTING POINT FOR TOMORROW (do these in order):
+
+ 0. FIRST, ask the user what "way 1 doesn't work" meant, before touching code:
+      - Did they test on the LIVE site (janatardipak.com)? Way 1 is UNCOMMITTED,
+        so production does not have it at all. If they tested locally, was the
+        dev server restarted and was the test post's link switched from Button
+        to Embed? (Nearly every stored link is `button`; the site shows no
+        Facebook embed for those.)
+      - What exactly did they see: the old "Video Unavailable" frame, the new
+        "Facebook doesn't let this video play..." card, a blank box, or a
+        PLAYABLE video wrongly replaced by the card?
+      - Was their expectation that broken reels must actually PLAY (Way 1 cannot
+        do that; it only shows a clean fallback)?
+    Unverified hypotheses for the discrepancy (my lab test passed):
+      (a) tested on production (change not deployed); (b) tested on a stale
+      local server / 60s unstable_cache / the link still Button; (c) the real
+      post page path (components/posts/PostEmbed.tsx -> FacebookEmbed) behaves
+      differently from the temp route (check PostEmbed.tsx and how
+      lib/embed.ts classifies share/v, share/r, share/p — isVideo/isReel regexes
+      from 2026-09-15: isReel = /\/reel\// or /^\/share\/r\//; isVideo also
+      matches /^\/share\/[rv]\// and fb.watch); (d) xfbml.ready not firing in the
+      user's browser (Safari/Firefox/extension) or firing before the listener
+      attaches on a client-side navigation where the SDK was already loaded;
+      (e) a working video needing >8s to become ready; (f) they wanted playback,
+      not a card.
+ 1. DECIDE the fate of the uncommitted FacebookEmbed.tsx change: keep + fix,
+    or discard (`git checkout -- components/embeds/FacebookEmbed.tsx`). Do NOT
+    push it as-is until (0) is answered; it carries the regression risk in
+    Section 3 (playable video replaced by the card if ready never fires).
+ 2. THE MOST PROMISING NEXT BUILD is "Way R" (share-link resolver, Section 3):
+    resolve share/{v,r,p} links to canonical URLs (server-side with a non-browser
+    UA, manual redirect, read Location, strip rdid), classify on the RESOLVED
+    URL, cache, and fall back to the original URL on any failure. First, test it
+    from Render's IP: add a temporary log line or a one-off admin/debug route on
+    a deploy (Render's IP may be blocked by Facebook — unknown). Consider a
+    one-time local batch script to resolve all stored links if Render can't.
+    Writing resolved URLs into posts.links (JSONB, no migration) is production
+    data and needs the user's explicit approval.
+ 3. Remaining planned ways NOT built (user will check "the other ways" tomorrow):
+    Way 2 (poster card via posts.thumbnail_url — small FacebookEmbed/PostEmbed
+    change to accept a poster; screenshot 9:16 frame uploaded by an editor),
+    Way 3 (server-side OG scrape — likely blocked; test with `curl -A
+    "facebookexternalhit/1.1"` from Render first; note the 302 Location approach
+    above already works without a body), Way 4 (third-party preview service —
+    verify free-tier terms), Way 5 (self-host via local yt-dlp + ffmpeg -> R2 ->
+    existing post video media; music/ToS/copyright caveats; 25MB upload cap in
+    app/api/admin/upload/route.ts MAX_VIDEO_BYTES), Way 6 (GitHub Actions
+    workflow_dispatch downloader; user must add R2 secrets to GitHub), Way 7
+    (site-owned unlisted YouTube channel + existing YouTube embed path). Follow
+    the user's rule: build ONE, then stop and have them check it.
+ 4. Way 0 remains a zero-code option: switch a link from Embed to Button in the
+    post editor (already how 182 of 184 Facebook links are set).
+ 5. Keep-alive endpoint follow-ups:
+      - User must create the UptimeRobot monitor on the .onrender.com URL.
+      - After Render deploys d6d6986, confirm `curl -I https://<service>.
+        onrender.com/api/ping` -> 200, and on/after 2026-09-20 (UTC) look in the
+        Render logs for `[keep-alive] Supabase ping OK (2026-09-20)` (the first
+        due day; then 09-24, 09-28, 10-02...). Note the in-memory flag resets on
+        each Render restart/deploy, so at most one extra query per due day.
+      - If a `[keep-alive] Supabase ping FAILED:` line appears, investigate
+        (the site_settings anon-read RLS is the assumption).
+      - Verify the Discord CI notification for d6d6986 arrived.
+ 6. Carried-over open items (unchanged today):
+      - Verify on Render that the `[memory] rss=... heapUsed=...` logs (15-min
+        interval, instrumentation-node.ts) now stay FLAT over several hours
+        after the 293fd7d Supabase-ticker fix. If they still climb, there's a
+        second leak source (lib/cache.ts, lib/rate-limit.ts, AdminPresence.tsx,
+        the heartbeat route were already ruled out — don't re-investigate).
+      - lib/changelog-data.ts has no entry for 2026-09-17 missions B-E, the
+        Supabase leak fix, or v1.16.0 (admin Changelogs tab is behind).
+      - Render Build Command lacks `cp -r public .next/standalone/` (low
+        priority; corrected command documented in the 2026-09-17 dossier).
+      - Deferred opt-ins: admin 2FA (ENABLE_ADMIN_2FA + Resend/SMS), Meta Graph
+        API/integration_settings migration, complaint-cleanup cron scheduling
+        (CRON_SECRET), CLOUDFLARE_API_TOKEN for live R2 metrics.
+ 7. Housekeeping/operational lessons from today:
+      - `python` is not installed; use the Edit tool or node for file edits.
+      - Windows paths inside heredoc'd scripts: use forward slashes.
+      - Next App Router folders starting with `_` are private (not routed) —
+        don't use them for temp test routes.
+      - `taskkill /IM node.exe` kills every node process; prefer port-scoped
+        `Get-NetTCPConnection -LocalPort N | Stop-Process`. If Turbopack panics
+        afterwards: `rm -rf .next` and restart.
+      - The per-task Discord-announcement protocol was for 2026-09-19 only; it
+        is not a standing instruction unless the user re-states it.
+      - Mobile push (PushNotification) is disabled in /config, so "call me"
+        requests can only be met via the chat message.
+ 8. Working-tree state at end of session: HEAD = d6d6986 (pushed). Uncommitted:
+    ` M components/embeds/FacebookEmbed.tsx` and this new, untracked dossier
+    file. No dev servers running (ports 3111 and 4100 confirmed free). The
+    scratchpad test harness (Playwright + Edge) can be reused for Facebook
+    experiments: `node run.mjs "<comma-separated urls>"` (needs
+    `node server.mjs` on :4100), `node resolve.mjs "<urls>"`.
+================================================================================
+END OF DOSSIER
+================================================================================
