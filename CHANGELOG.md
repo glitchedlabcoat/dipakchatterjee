@@ -5,6 +5,22 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.17.0] - 2026-09-24
+
+### Added
+
+- Temporary diagnostic endpoint `GET /api/admin/debug-fb-resolve` (admin-only via `requireAdmin()`), to be deleted once its question is answered: can this Render instance resolve Facebook `/share/{v,r,p}/<code>` short links to their canonical URLs (the "Way R" embed fix), or does Facebook block Render's datacenter IP? It probes 4 known share links with 5 header variants (`facebookexternalhit`, `curl/8.0`, Chrome UA, Chrome + `Accept`/`Accept-Language`, `facebookexternalhit` + `Accept`) using `redirect: "manual"`, cancels every response body unread (headers only, ~20 tiny requests per call), and reports status, `Location`, a verdict, and the container's egress IP (via Cloudflare's `/cdn-cgi/trace`). Baseline from a residential IP: crawler/curl UAs get `302` + canonical `Location`; any browser UA gets `400`.
+
+### Files Changed
+
+- `app/api/admin/debug-fb-resolve/route.ts` (new, temporary)
+
+### Today's Checkpoint (2026-09-24)
+
+Open ledger for anything else shipped later today — appended here rather than opening a new version entry, so the day's work stays in one place. Promote to a normal dated entry (or fold into the next version bump) once the day is done.
+
+- _(nothing further yet)_
+
 ## [v1.16.0] - 2026-09-19
 
 ### Added
