@@ -18,44 +18,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/admin-guard";
 import { uploadToR2, deleteFromR2 } from "@/lib/r2";
+import { ALLOWED_FOLDERS, validateAdminUpload } from "@/lib/admin-upload-policy";
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// FALLBACK PATH ONLY for POST. Uploads normally go browser -> R2 directly
+// via a presigned URL (app/api/admin/upload-url/route.ts); this route
+// re-sends every byte from Render to R2, which counts against Render's
+// "Service-Initiated" bandwidth, so lib/media-upload-client.ts only uses
+// it when the direct PUT fails (e.g. bucket CORS not configured).
+//
 // request.formData() fully buffers the upload in memory before this
 // handler ever sees it, then Buffer.from(await file.arrayBuffer())
-// copies it again — so a single request transiently holds ~2x this
-// value in RSS. On a 512MB host that made the old 100MB ceiling capable
-// of single-handedly triggering the V8 "JavaScript heap out of memory"
-// crashes seen in production; 25MB keeps a single upload's worst-case
-// footprint well under the container's real headroom. Raise this only
-// alongside a real memory/plan increase, or switch this route to a
-// true streaming multipart upload first.
-const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
-
-// One folder per media feature, mirroring the Supabase Storage buckets
-// they replace (SITE_BUCKET, POST_BUCKET, FEATURE_BUCKET, PHASE_BUCKET
-// — see types/domain.ts) — R2 has a single bucket for the whole app, so
-// these keep each feature's objects in their own namespace within it.
-// Deliberately excludes complaint-media: citizen complaint uploads stay
-// on Supabase Storage (a distinct, anonymous-submission flow with its
-// own service-role-only code path — see utils/supabase/admin.ts), not
-// part of this admin-only endpoint.
-const ALLOWED_FOLDERS = new Set(["site-media", "post-media", "feature-media", "phase-media"]);
-
-function sanitizeKeySegment(segment: string): string {
-  return segment.replace(/[^a-zA-Z0-9.-]/g, "_");
-}
-
-// Sanitizes a client-supplied relative path per path segment (rather
-// than rejecting slashes outright, since callers legitimately pass
-// `${entityId}/${filename}`), and drops any segment that could escape
-// the folder namespace (`.`, `..`, or anything that sanitizes to empty).
-function sanitizeKeyPath(path: string): string {
-  return path
-    .split("/")
-    .map(sanitizeKeySegment)
-    .filter((segment) => segment && segment !== "." && segment !== "..")
-    .join("/");
-}
+// copies it again — so a single request transiently holds ~2x the file
+// size in RSS. That's why lib/admin-upload-policy.ts caps video at 25MB
+// on the 512MB Render instance.
 
 export async function POST(request: NextRequest) {
   try {
@@ -78,32 +53,12 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file provided." }, { status: 400 });
   }
-  if (typeof folder !== "string" || !ALLOWED_FOLDERS.has(folder)) {
-    return NextResponse.json({ error: "Invalid upload folder." }, { status: 400 });
-  }
-  if (typeof relativePath !== "string" || !relativePath.trim()) {
-    return NextResponse.json({ error: "Invalid upload path." }, { status: 400 });
-  }
 
-  const isImage = file.type.startsWith("image/");
-  const isVideo = file.type.startsWith("video/");
-  if (!isImage && !isVideo) {
-    return NextResponse.json({ error: "Only image and video files are supported." }, { status: 400 });
+  const validated = validateAdminUpload({ folder, path: relativePath, contentType: file.type, size: file.size });
+  if (!validated.ok) {
+    return NextResponse.json({ error: validated.error }, { status: 400 });
   }
-
-  const maxBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-  if (file.size > maxBytes) {
-    return NextResponse.json(
-      { error: `File is too large (max ${Math.round(maxBytes / 1024 / 1024)}MB).` },
-      { status: 400 }
-    );
-  }
-
-  const sanitizedPath = sanitizeKeyPath(relativePath);
-  if (!sanitizedPath) {
-    return NextResponse.json({ error: "Invalid upload path." }, { status: 400 });
-  }
-  const key = `${folder}/${sanitizedPath}`;
+  const { key } = validated;
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());

@@ -17,14 +17,14 @@
 //
 //   - Every public page/layout's Supabase reads go through
 //     utils/supabase/public.ts's cookie-free client, wrapped in
-//     `unstable_cache(fn, keyParts, { revalidate: 60, tags: [PUBLIC_CACHE_TAG] })`.
+//     `unstable_cache(fn, keyParts, { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAG] })`.
 //   - The page itself still renders fresh HTML on every request (CSP
 //     requires that), but on a cache hit that render reuses the cached
 //     query result instead of re-hitting Postgres — which is what
 //     actually drives Supabase egress, not the HTML response.
 //   - revalidatePublicPages() below busts every one of those cached
 //     reads immediately, so an admin's save shows up right away instead
-//     of waiting out the 60s window.
+//     of waiting out the revalidate window.
 //
 // One coarse tag rather than a tag per table: this site's public pages
 // are read-heavy/low-traffic, cross-reference each other pretty freely
@@ -56,6 +56,14 @@ export const TAG_POSTS_LIST = "posts-list";
 export const TAG_POST_ITEM = (id: string) => `post-${id}`;
 export const TAG_SECTIONS = "homepage-sections";
 
+// Time-based expiry for every cached public read. Every admin mutation
+// already busts the relevant tag immediately (below), so this only
+// bounds staleness for edits made OUTSIDE the admin UI (e.g. directly in
+// the Supabase dashboard). It was 60s, which meant each cached read was
+// re-fetched from Supabase ~1,440 times a day under constant traffic
+// (Render's health check) — 10 minutes cuts that 10x.
+export const PUBLIC_REVALIDATE_SECONDS = 600;
+
 export function revalidatePublicPages() {
   // Next 16's revalidateTag requires a second "profile" argument.
   // `"max"` (the recommended default) serves stale content while
@@ -75,20 +83,68 @@ export function revalidatePublicTag(tag: string) {
 
 // --- Cache Efficiency telemetry (Egress Monitor, /admin/egress) -----------
 //
-// Fires record_cache_event() (see the cache_metrics migration) on every
-// cache hit and miss so the dashboard can show real hit ratios and
-// estimated bandwidth saved, per route. Recording is fire-and-forget —
-// awaited internally by recordCacheEvent()'s own promise chain, but never
-// awaited by the caller — so a slow or failing telemetry write can never
-// delay or break an actual page render.
-async function recordCacheEvent(route: string, isHit: boolean, bytes: number) {
+// Counts every cache hit and miss so the dashboard can show real hit
+// ratios and estimated bandwidth saved, per route.
+//
+// Batched in memory, NOT one RPC per event: the original per-event
+// record_cache_event() call was an outbound HTTPS request to Supabase
+// for every hit — ~87k/day once Render's health check was rendering the
+// homepage every ~4s — and was the bulk of Render's "Service-Initiated"
+// bandwidth. Counts now accumulate per route and are flushed lazily (on
+// the next event after FLUSH_INTERVAL_MS, no timer) as one
+// record_cache_events() call per route. Trade-off: up to one interval's
+// worth of counts is lost if the instance restarts before flushing —
+// fine for an approximate dashboard metric.
+//
+// Flushing is fire-and-forget, so a slow or failing telemetry write can
+// never delay or break an actual page render.
+const FLUSH_INTERVAL_MS = 10 * 60 * 1000;
+
+type PendingCounts = { hits: number; misses: number; bytesSaved: number; bytesSpent: number };
+let pending = new Map<string, PendingCounts>();
+let lastFlushAt = Date.now();
+
+function recordCacheEvent(route: string, isHit: boolean, bytes: number) {
+  const counts = pending.get(route) ?? { hits: 0, misses: 0, bytesSaved: 0, bytesSpent: 0 };
+  if (isHit) {
+    counts.hits += 1;
+    counts.bytesSaved += bytes;
+  } else {
+    counts.misses += 1;
+    counts.bytesSpent += bytes;
+  }
+  pending.set(route, counts);
+
+  if (Date.now() - lastFlushAt >= FLUSH_INTERVAL_MS) {
+    void flushCacheEvents();
+  }
+}
+
+async function flushCacheEvents() {
+  const batch = pending;
+  pending = new Map();
+  lastFlushAt = Date.now();
+  if (batch.size === 0) return;
+
   try {
     const supabase = createPublicClient();
-    await supabase.rpc("record_cache_event", { p_route: route, p_is_hit: isHit, p_bytes: bytes });
+    await Promise.all(
+      [...batch].map(([route, c]) =>
+        supabase.rpc("record_cache_events", {
+          p_route: route,
+          p_hits: c.hits,
+          p_misses: c.misses,
+          p_bytes_saved: c.bytesSaved,
+          p_bytes_spent: c.bytesSpent,
+        })
+      )
+    );
   } catch {
     // Telemetry is best-effort. A failure here (network blip, RPC not
     // yet migrated on some environment, etc.) must never surface to a
-    // site visitor or affect the page they're loading.
+    // site visitor or affect the page they're loading. The batch is
+    // dropped rather than re-queued so a persistent failure can't grow
+    // memory or turn into a retry storm.
   }
 }
 

@@ -18,7 +18,7 @@
 
 import { cache } from "react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, TAG_SETTINGS, createTrackedCache } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, TAG_SETTINGS, createTrackedCache } from "@/lib/cache";
 import type { SiteSettings } from "@/types/domain";
 
 export const getSiteSettings = cache(
@@ -34,6 +34,6 @@ export const getSiteSettings = cache(
       return (data as SiteSettings | null) ?? null;
     },
     ["site-settings"],
-    { revalidate: 60, tags: [TAG_SETTINGS, PUBLIC_CACHE_TAG] }
+    { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [TAG_SETTINGS, PUBLIC_CACHE_TAG] }
   )
 );

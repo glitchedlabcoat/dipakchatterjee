@@ -37,7 +37,7 @@
 import { cache } from "react";
 import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, createTrackedCache } from "@/lib/cache";
 import { getSiteSettings } from "@/lib/queries/settings";
 import type { FooterBlockWithLinks, HeaderAction, NavLink, SiteSettings, SocialLink } from "@/types/domain";
 import { darken } from "@/lib/color";
@@ -85,7 +85,7 @@ const getSiteChrome = cache(
       return { footerBlocks, socialLinks, navLinks, headerActions };
     },
     ["site-chrome"],
-    { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+    { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAG] }
   )
 );
 

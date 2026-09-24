@@ -15,7 +15,7 @@ import { notFound } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ArrowLeft } from "lucide-react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, createTrackedCache } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, createTrackedCache } from "@/lib/cache";
 import type { Phase, PhasePhoto } from "@/types/domain";
 import PhaseFullGallery from "@/components/phases/PhaseFullGallery";
 
@@ -29,7 +29,7 @@ const getPublishedPhase = createTrackedCache(
     return phase;
   },
   ["phase"],
-  { revalidate: 60, tags: [PUBLIC_CACHE_TAG] }
+  { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [PUBLIC_CACHE_TAG] }
 );
 
 export async function generateMetadata({

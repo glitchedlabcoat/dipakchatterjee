@@ -29,7 +29,7 @@
 
 import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, TAG_SECTIONS, createTrackedCache } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, TAG_SECTIONS, createTrackedCache } from "@/lib/cache";
 import { getSiteSettings } from "@/lib/queries/settings";
 import { getPostsList } from "@/lib/queries/posts";
 import type { CtaButton, FeatureWithMedia, Organization, Phase, SiteSettings } from "@/types/domain";
@@ -108,7 +108,7 @@ const getHomepageSections = createTrackedCache(
     return { features, phases, organizations, ctaButtons };
   },
   ["homepage-sections"],
-  { revalidate: 60, tags: [TAG_SECTIONS, PUBLIC_CACHE_TAG] }
+  { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [TAG_SECTIONS, PUBLIC_CACHE_TAG] }
 );
 
 export default async function HomePage() {

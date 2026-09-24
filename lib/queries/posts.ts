@@ -9,7 +9,7 @@
 
 import { cache } from "react";
 import { createPublicClient } from "@/utils/supabase/public";
-import { PUBLIC_CACHE_TAG, TAG_POSTS_LIST, TAG_POST_ITEM, createTrackedCache, trackedCacheRead } from "@/lib/cache";
+import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, TAG_POSTS_LIST, TAG_POST_ITEM, createTrackedCache, trackedCacheRead } from "@/lib/cache";
 import type { PostWithMedia } from "@/types/domain";
 
 // Same shape (pinned first, then newest) powers both the homepage's
@@ -40,7 +40,7 @@ export const getPostsList = cache(
       return { posts: (posts as PostWithMedia[]) ?? [], count: count ?? 0 };
     },
     ["posts-list"],
-    { revalidate: 60, tags: [TAG_POSTS_LIST, PUBLIC_CACHE_TAG] }
+    { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [TAG_POSTS_LIST, PUBLIC_CACHE_TAG] }
   )
 );
 
@@ -65,6 +65,6 @@ export const getPostById = cache(async (id: string): Promise<PostWithMedia | nul
       return (post as PostWithMedia | null) ?? null;
     },
     ["post-item", id],
-    { revalidate: 60, tags: [TAG_POST_ITEM(id), PUBLIC_CACHE_TAG] }
+    { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [TAG_POST_ITEM(id), PUBLIC_CACHE_TAG] }
   );
 });

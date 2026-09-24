@@ -833,6 +833,16 @@ export type Database = {
         Args: { p_bytes: number; p_is_hit: boolean; p_route: string }
         Returns: undefined
       }
+      record_cache_events: {
+        Args: {
+          p_bytes_saved: number
+          p_bytes_spent: number
+          p_hits: number
+          p_misses: number
+          p_route: string
+        }
+        Returns: undefined
+      }
       transfer_admin_role: {
         Args: { new_admin_id: string }
         Returns: undefined
