@@ -27,6 +27,7 @@ const linkSchema = z.object({
   url: z.string().trim().min(1, "URL is required"),
   type: z.enum(["button", "embed"]),
   label: z.string().trim().max(80).optional(),
+  showText: z.boolean().optional(),
 });
 
 // Empty is always valid (falls back to the DB's own `default now()` —
@@ -155,6 +156,18 @@ function LinkRow({
         </div>
       )}
 
+      {embedInfo?.provider === "facebook" && (
+        <label className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-medium text-ink-600">
+          <input type="checkbox" {...register(`links.${index}.showText` as const)} className="rounded border-line" />
+          Include Facebook post text / caption
+          {/* Verified in a real browser: Meta's fb-video honors
+              data-show-text, but fb-post always renders the caption. */}
+          <span className="w-full pl-6 font-normal text-ink-400">
+            Applies to videos and reels. Facebook always shows the text on regular posts.
+          </span>
+        </label>
+      )}
+
       {showMetaGuidance && (
         <p className="mt-2 text-xs text-ink-400">
           Note: Meta embeds require the source post/reel to be set to &ldquo;Public&rdquo; 🌐 on
@@ -191,7 +204,11 @@ export default function PostForm({
       published_date: toLocalDateInputValue(post ? new Date(post.published_at) : new Date()),
       show_published_time: post?.show_published_time ?? true,
       is_published: post?.is_published ?? false,
-      links: ((post?.links as unknown as PostLink[]) ?? []).map((l) => ({ ...l, label: l.label ?? "" })),
+      links: ((post?.links as unknown as PostLink[]) ?? []).map((l) => ({
+        ...l,
+        label: l.label ?? "",
+        showText: l.showText ?? true,
+      })),
       slideshow_interval: post?.slideshow_interval ?? 0,
     },
   });
@@ -315,7 +332,7 @@ export default function PostForm({
 
         <button
           type="button"
-          onClick={() => append({ id: newLinkId(), url: "", type: "embed", label: "" })}
+          onClick={() => append({ id: newLinkId(), url: "", type: "embed", label: "", showText: true })}
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-saffron-600 hover:text-saffron"
         >
           <Plus className="w-4 h-4" />

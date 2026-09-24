@@ -95,4 +95,8 @@ export type PhasePhoto = { url: string; path: string; caption?: string; fact?: s
  * same as an unrecognized URL always was. "button" always renders as a
  * plain call-to-action, regardless of what its URL points to.
  */
-export type PostLink = { id: string; url: string; type: "button" | "embed"; label?: string };
+// showText: Facebook embeds only — whether Meta's plugin renders the
+// post's text/caption alongside the post/video (XFBML data-show-text).
+// Optional and additive: links saved before it existed have no value,
+// which means "show" (see FacebookEmbed's default).
+export type PostLink = { id: string; url: string; type: "button" | "embed"; label?: string; showText?: boolean };

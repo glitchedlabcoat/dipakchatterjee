@@ -109,6 +109,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   // untouched, as does any short-link that fails to resolve.
   let embed: EmbedInfo | null = null;
   let embedSourceUrl: string | null = null;
+  let embedShowText = true;
   for (const link of links) {
     if (link.type !== "embed") continue;
     const url = await resolveFacebookUrl(link.url);
@@ -116,6 +117,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
     if (info) {
       embed = info;
       embedSourceUrl = url;
+      embedShowText = link.showText ?? true;
       break;
     }
   }
@@ -176,7 +178,7 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
 
           {showEmbedBesideText && embed && embedSourceUrl && (
             <div>
-              <PostEmbed embed={embed} sourceUrl={embedSourceUrl} />
+              <PostEmbed embed={embed} sourceUrl={embedSourceUrl} showText={embedShowText} />
             </div>
           )}
 

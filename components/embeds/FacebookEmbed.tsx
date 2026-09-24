@@ -109,8 +109,21 @@ function ViewOnFacebookCard({ url, message }: { url: string; message: string }) 
   );
 }
 
-export default function FacebookEmbed({ embed, sourceUrl }: { embed: EmbedInfo; sourceUrl: string }) {
+// `showText` drives Meta's data-show-text (and the fallback iframe's
+// matching show_text param): whether the post's text/caption renders
+// with it. Chosen per link in the post editor; defaults to shown.
+export default function FacebookEmbed({
+  embed,
+  sourceUrl,
+  showText = true,
+}: {
+  embed: EmbedInfo;
+  sourceUrl: string;
+  showText?: boolean;
+}) {
   const isVideo = embed.orientation !== "auto";
+  const showTextAttr = showText ? "true" : "false";
+  const fallbackSrc = embed.embedUrl.replace(/show_text=(true|false)/, `show_text=${showTextAttr}`);
   const cleanUrl = sanitizeFacebookUrl(sourceUrl);
   // Reels/videos read better narrower (closer to their natural portrait
   // shape) than the 500px default that suits a horizontal post/photo.
@@ -125,14 +138,14 @@ export default function FacebookEmbed({ embed, sourceUrl }: { embed: EmbedInfo; 
   }, []);
 
   // Re-parse whenever the target URL changes on an already-mounted
-  // instance (the `key={cleanUrl}` below gives React a fresh, unparsed
+  // instance (the URL-keyed `key` below gives React a fresh, unparsed
   // div to hand the SDK in that case) — a no-op if the SDK hasn't
   // loaded yet, since next/script's onReady below handles that first
   // pass instead.
   useEffect(() => {
     if (!cleanUrl || xfbmlFailed) return;
     window.FB?.XFBML?.parse(containerRef.current ?? undefined);
-  }, [cleanUrl, xfbmlFailed]);
+  }, [cleanUrl, xfbmlFailed, showTextAttr]);
 
   // Automated mount-failure detection (see file header) — watches for
   // XFBML replacing our div with an <iframe>; falls back to the direct
@@ -183,7 +196,7 @@ export default function FacebookEmbed({ embed, sourceUrl }: { embed: EmbedInfo; 
         className={`rounded-lg overflow-hidden border border-line bg-navy-900 ${FALLBACK_CONTAINER_CLASS[embed.orientation]}`}
       >
         <iframe
-          src={embed.embedUrl}
+          src={fallbackSrc}
           title="Facebook embed"
           className="w-full h-full"
           style={embed.orientation === "auto" ? { minHeight: 560 } : undefined}
@@ -206,15 +219,15 @@ export default function FacebookEmbed({ embed, sourceUrl }: { embed: EmbedInfo; 
       />
       {isVideo ? (
         <div
-          key={cleanUrl}
+          key={`${cleanUrl}:${showTextAttr}`}
           className="fb-video"
           data-href={cleanUrl}
           data-width={width}
-          data-show-text="false"
+          data-show-text={showTextAttr}
           data-allowfullscreen="true"
         />
       ) : (
-        <div key={cleanUrl} className="fb-post" data-href={cleanUrl} data-width={width} data-show-text="true" />
+        <div key={`${cleanUrl}:${showTextAttr}`} className="fb-post" data-href={cleanUrl} data-width={width} data-show-text={showTextAttr} />
       )}
     </div>
   );

@@ -43,12 +43,21 @@ const PROVIDER_LABEL: Record<EmbedInfo["provider"], string> = {
 
 // The original link the admin entered (not `embed.embedUrl`, which is
 // the transformed plugin/iframe URL — not something a visitor should
-// land on directly).
-export default function PostEmbed({ embed, sourceUrl }: { embed: EmbedInfo; sourceUrl: string }) {
+// land on directly). `showText` only applies to Facebook (see
+// types/domain.ts's PostLink.showText).
+export default function PostEmbed({
+  embed,
+  sourceUrl,
+  showText = true,
+}: {
+  embed: EmbedInfo;
+  sourceUrl: string;
+  showText?: boolean;
+}) {
   const [failed, setFailed] = useState(false);
 
   if (embed.provider === "facebook") {
-    return <FacebookEmbed embed={embed} sourceUrl={sourceUrl} />;
+    return <FacebookEmbed embed={embed} sourceUrl={sourceUrl} showText={showText} />;
   }
 
   if (failed) {
