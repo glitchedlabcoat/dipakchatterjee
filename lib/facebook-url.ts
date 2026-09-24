@@ -27,7 +27,11 @@ const FACEBOOK_HOSTS_TO_NORMALIZE = new Set(["m.facebook.com", "web.facebook.com
 // rather than "normalized" into a URL that no longer resolves.
 const FACEBOOK_SHORTLINK_HOST = "fb.watch";
 
-const TRACKING_PARAMS = ["mibextid", "fbclid", "ref", "rdid", "share_id"];
+// rdid/share_url are per-redirect values Facebook appends when a
+// /share/ short-link redirects to its canonical URL (see
+// lib/facebook-resolver.ts) — different on every request, so they'd
+// otherwise make the same post look like a new URL each time.
+const TRACKING_PARAMS = ["mibextid", "fbclid", "ref", "rdid", "share_id", "share_url"];
 
 export function sanitizeFacebookUrl(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) return null;

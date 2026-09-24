@@ -30,6 +30,7 @@ import MediaPlayer from "@/components/MediaPlayer";
 import PostEmbed from "@/components/posts/PostEmbed";
 import PostImageCarousel from "@/components/posts/PostImageCarousel";
 import { getEmbedInfo, type EmbedInfo } from "@/lib/embed";
+import { resolveFacebookUrl } from "@/lib/facebook-resolver";
 import { formatPostDate } from "@/lib/post-date";
 import { truncateTitle } from "@/lib/truncate-title";
 
@@ -100,14 +101,21 @@ export default async function PostPage({ params }: { params: Promise<{ id: strin
   // The first embed-type link that resolves to a recognized provider
   // wins; any others (or an embed link that doesn't resolve) are
   // silently ignored rather than shown as an error.
+  //
+  // Facebook /share/ short-links are swapped for their canonical
+  // permalink first (lib/facebook-resolver.ts) — Meta's embed plugins
+  // can't play a short-link, and whether it's a video or a post can
+  // only be told from the resolved URL. Non-Facebook URLs pass through
+  // untouched, as does any short-link that fails to resolve.
   let embed: EmbedInfo | null = null;
   let embedSourceUrl: string | null = null;
   for (const link of links) {
     if (link.type !== "embed") continue;
-    const info = getEmbedInfo(link.url);
+    const url = await resolveFacebookUrl(link.url);
+    const info = getEmbedInfo(url);
     if (info) {
       embed = info;
-      embedSourceUrl = link.url;
+      embedSourceUrl = url;
       break;
     }
   }

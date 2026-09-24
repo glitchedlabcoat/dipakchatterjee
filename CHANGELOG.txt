@@ -32,7 +32,57 @@ Today's Checkpoint (2026-09-24):
   rather than opening a new version entry, so the day's work stays in
   one place. Promote to a normal dated entry (or fold into the next
   version bump) once the day is done.
-  * (nothing further yet)
+  * Performance: Render "Service-Initiated" bandwidth (3.54 GB of a
+    5 GB monthly cap) traced to Render's health check (path still "/"
+    from the long-deleted render.yaml) rendering the homepage every
+    ~4s, each render firing 4 one-event-per-call record_cache_event()
+    telemetry RPCs to Supabase (~87k outbound calls/day). lib/cache.ts
+    now batches hit/miss counts in memory and flushes one
+    record_cache_events() call per route at most every 10 minutes (new
+    batched SQL function, applied directly to the live database).
+    Cached public reads now expire after PUBLIC_REVALIDATE_SECONDS =
+    600 instead of 60s (admin saves still bust tags instantly).
+    Verified: 30 local homepage loads made 0 Supabase calls
+    (previously 120). Render Health Check Path should be /api/ping.
+  * Performance: admin media uploads go browser -> R2 directly via a
+    presigned PUT (new POST /api/admin/upload-url); validation shared
+    with the old proxied route via lib/admin-upload-policy.ts, which
+    lib/media-upload-client.ts falls back to if the direct PUT fails.
+  * Chore: pruned supabase/migrations/ to the one migration not yet
+    applied live (20260928000000_meta_description.sql). All others
+    were recorded as applied or confirmed present in the live schema;
+    integration_settings exists live in a different shape and must
+    never be re-run. History remains in git.
+  * Fixed: Facebook embeds showing "Video Unavailable" - caused by
+    /share/{v,r,p}/ short-link URLs, which Meta's XFBML plugins can't
+    resolve (not licensed music). New lib/facebook-resolver.ts
+    resolves them server-side with one header-only request (manual
+    redirect, crawler User-Agent, body cancelled; Facebook replies 302
+    + canonical Location, confirmed from Render's IP), strips rdid/
+    share_url, caches 30 days (failures never cached), and falls back
+    to the original URL on any error. The post page classifies the
+    embed on the resolved URL. Way 1 experiment discarded; temporary
+    /api/admin/debug-fb-resolve route removed.
+
+  Files edited (paths only):
+    - lib/cache.ts
+    - lib/queries/posts.ts
+    - lib/queries/settings.ts
+    - app/(site)/layout.tsx
+    - app/(site)/page.tsx
+    - app/(site)/phases/[id]/page.tsx
+    - types/database.types.ts
+    - lib/r2.ts
+    - lib/media-upload-client.ts
+    - app/api/admin/upload/route.ts
+    - app/api/admin/upload-url/route.ts (new)
+    - lib/admin-upload-policy.ts (new)
+    - supabase/migrations/* (34 deleted)
+    - lib/facebook-resolver.ts (new)
+    - lib/facebook-url.ts
+    - app/(site)/posts/[id]/page.tsx
+    - components/embeds/FacebookEmbed.tsx
+    - app/api/admin/debug-fb-resolve/route.ts (deleted)
 
 --------------------
 

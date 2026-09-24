@@ -52,9 +52,12 @@
 // path: an iframe that mounts (XFBML "succeeded") but whose *content*
 // Meta renders as "Content Currently Unavailable" is invisible from
 // here — the browser has no API for that, cross-origin. That failure
-// mode (confirmed real for some Reels specifically, independent of
-// anything in this app) has no further client-side fix; a visitor
-// hitting it sees Meta's own iframe say so, with no crash.
+// mode has no further client-side fix; a visitor hitting it sees Meta's
+// own iframe say so, with no crash. (Its most common cause turned out
+// NOT to be the content itself but /share/{v,r,p}/ short-link hrefs,
+// which the plugins can't resolve — app/(site)/posts/[id]/page.tsx now
+// swaps those for their canonical permalink server-side via
+// lib/facebook-resolver.ts before `sourceUrl` ever reaches this file.)
 
 "use client";
 
