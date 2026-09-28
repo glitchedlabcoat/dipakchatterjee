@@ -43,6 +43,7 @@ retroactively rewritten.
 
 Open ledger for anything else shipped later today — appended here rather than opening a new version entry.
 
+- Removed: the click-to-load consent gate for embeds (added earlier today in this entry), for every provider, at the site owner's request. YouTube/Facebook/Instagram embeds load automatically again as before 2026-09-27; `components/posts/PostEmbed.tsx` restored and `components/embeds/EmbedConsentGate.tsx` deleted. `/privacy` updated to match: opening a post with an embed connects the browser to that platform, which receives the IP address and may set cookies; no other page loads third-party content. "Last updated" moved to 28 September 2026.
 - Investigated: Supabase "Logs Ingest" at 3.28 GB of the free 1 GB this cycle. Caused by 11–24 Sep's health-check/telemetry traffic (fixed 2026-09-24 in v1.17.0); now ~5 MB/day. The ~11.6k PgBouncer lines/day are Supabase's own pooler health checks (`pgbouncer@[::1]` every 15 s), not this app. No code change needed.
 
 ## [v1.17.0] - 2026-09-24

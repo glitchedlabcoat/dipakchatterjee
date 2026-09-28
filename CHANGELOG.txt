@@ -76,6 +76,13 @@ Files edited (paths only):
 Today's Checkpoint (2026-09-28):
   Open ledger for anything else shipped later today - appended here
   rather than opening a new version entry.
+  * Removed: the click-to-load consent gate for embeds (added earlier
+    today), for every provider, at the site owner's request. Embeds
+    load automatically again as before 2026-09-27; PostEmbed.tsx
+    restored, EmbedConsentGate.tsx deleted. /privacy updated: opening
+    a post with an embed connects the browser to that platform (IP
+    address, possible cookies); no other page loads third-party
+    content. "Last updated" now 28 September 2026.
   * Investigated: Supabase "Logs Ingest" at 3.28 GB of the free 1 GB
     this cycle. Caused by 11-24 Sep health-check/telemetry traffic
     (fixed 2026-09-24 in v1.17.0); now ~5 MB/day. The ~11.6k

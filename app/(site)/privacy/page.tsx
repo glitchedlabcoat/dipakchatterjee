@@ -7,9 +7,10 @@
 //     lib/complaints-cleanup.ts (retention days come live from
 //     site_settings.complaint_expiration_days, same default of 7)
 //   - IP used only for the in-memory rate limit -> lib/rate-limit.ts
-//   - click-to-load embeds -> components/embeds/EmbedConsentGate.tsx
-//   - no public-site cookies/analytics -> proxy.ts only touches auth
-//     cookies under /admin
+//   - embeds load automatically, no consent step (the click-to-load
+//     gate was removed 2026-09-28) -> components/posts/PostEmbed.tsx
+//   - no first-party public-site cookies/analytics -> proxy.ts only
+//     touches auth cookies under /admin
 //
 // Not legal advice and not reviewed by a lawyer: have it checked
 // before relying on it (India's DPDP Act 2023 is the most likely
@@ -31,7 +32,7 @@ export const metadata: Metadata = {
 
 const DEFAULT_CONTACT_EMAIL = "dipak.chatterjee304@gmail.com";
 const DEFAULT_RETENTION_DAYS = 7;
-const LAST_UPDATED = "27 September 2026";
+const LAST_UPDATED = "28 September 2026";
 
 function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
@@ -80,9 +81,10 @@ export default async function PrivacyPage() {
 
           <Section title="Browsing the site">
             <p>
-              The public pages of this site set no cookies and use no analytics, advertising or
+              This site itself sets no cookies on its public pages and uses no analytics, advertising or
               session-recording tools. Our hosting and storage providers keep standard technical logs
-              (such as IP address and time of request) to operate and secure the service.
+              (such as IP address and time of request) to operate and secure the service. Posts that
+              show content from other platforms are the one exception — see below.
             </p>
           </Section>
 
@@ -110,10 +112,11 @@ export default async function PrivacyPage() {
 
           <Section id="third-party-content" title="Videos and posts from other platforms">
             <p>
-              Some posts include content from YouTube, Facebook or Instagram. This content is not
-              loaded until you click to load it. Once you do, your browser connects directly to that
-              platform (Google or Meta), which receives your IP address and may set its own cookies
-              under its own privacy policy. Your choice lasts only until you close the browser tab.
+              Some posts show a video or post from YouTube, Facebook or Instagram directly on the page.
+              When you open one of those posts, your browser connects to that platform (Google or Meta)
+              to display it, so the platform receives your IP address and may set its own cookies under
+              its own privacy policy. Other pages of this site don&apos;t load this content. You can
+              limit it with your browser&apos;s cookie and tracking settings.
             </p>
           </Section>
 

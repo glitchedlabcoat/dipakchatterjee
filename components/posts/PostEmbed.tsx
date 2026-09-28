@@ -21,10 +21,6 @@
 // be caught this way. What this achieves is specifically the case a
 // plain <iframe src> can hit on its own: a network error, a
 // blocked/refused connection, or a CSP violation.
-//
-// Every provider — Facebook included, since its SDK <Script> lives
-// inside FacebookEmbed — sits behind EmbedConsentGate: nothing is
-// requested from YouTube/Meta until the visitor clicks to load it.
 
 "use client";
 
@@ -32,7 +28,6 @@ import { useState } from "react";
 import { ExternalLink } from "lucide-react";
 import type { EmbedInfo } from "@/lib/embed";
 import FacebookEmbed from "@/components/embeds/FacebookEmbed";
-import EmbedConsentGate, { useEmbedConsent } from "@/components/embeds/EmbedConsentGate";
 
 const CONTAINER_CLASS: Record<EmbedInfo["orientation"], string> = {
   horizontal: "w-full aspect-video",
@@ -60,11 +55,6 @@ export default function PostEmbed({
   showText?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  const [consented, grantConsent] = useEmbedConsent(embed.provider);
-
-  if (!consented) {
-    return <EmbedConsentGate provider={embed.provider} sourceUrl={sourceUrl} onLoad={grantConsent} />;
-  }
 
   if (embed.provider === "facebook") {
     return <FacebookEmbed embed={embed} sourceUrl={sourceUrl} showText={showText} />;
