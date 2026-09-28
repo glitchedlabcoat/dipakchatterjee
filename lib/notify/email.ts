@@ -24,8 +24,8 @@ function formatTimestamp(date: Date): string {
 // Table-based layout with every style inline: the two things email
 // clients (Outlook/Gmail/etc.) reliably support, unlike flexbox/grid or
 // a <style> block, which many strip or ignore entirely.
-// Exported for the local preview script (scripts/preview-otp-email.ts)
-// and for testing — not used anywhere else in the app.
+// Exported so the template can be rendered on its own (e.g. a preview
+// or a test) — not used anywhere else in the app.
 export function buildOtpEmailHtml(code: string, timestamp: string): string {
   const digits = code.split("");
   return `<!doctype html>

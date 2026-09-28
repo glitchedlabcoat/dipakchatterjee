@@ -83,6 +83,16 @@ Today's Checkpoint (2026-09-28):
     a post with an embed connects the browser to that platform (IP
     address, possible cookies); no other page loads third-party
     content. "Last updated" now 28 September 2026.
+  * Security (audit S5): complaint attachments must come from the
+    submitter's own form. submitComplaint now receives the form's
+    draftId (UUID) and rejects media keys outside
+    r2-media/<draftId>/, the prefix the upload-url route issued.
+    Before, any r2-media/ key was accepted.
+  * Code audit: npm audit 0 vulnerabilities; every API route guarded
+    except public /api/ping and the temporary /api/debug-client-ip;
+    JSON-LD escapes "<"; Facebook resolver fetches allowlisted hosts
+    only; no open redirects. Removed dead lib/file-validation.ts and
+    a stale preview-script reference in lib/notify/email.ts.
   * Investigated: Supabase "Logs Ingest" at 3.28 GB of the free 1 GB
     this cycle. Caused by 11-24 Sep health-check/telemetry traffic
     (fixed 2026-09-24 in v1.17.0); now ~5 MB/day. The ~11.6k

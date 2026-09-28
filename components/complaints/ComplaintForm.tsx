@@ -57,6 +57,7 @@ export default function ComplaintForm() {
         description: values.description,
         contact_phone: values.contact_phone,
         consent: values.consent,
+        draftId,
         media,
       });
 

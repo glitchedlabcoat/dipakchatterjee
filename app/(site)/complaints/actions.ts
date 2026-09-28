@@ -35,6 +35,12 @@ const complaintSchema = z.object({
   // confirmation is the lawful basis for storing anything at all, so a
   // request that bypasses the client-side checkbox must still fail.
   consent: z.literal(true, { error: "Please confirm the privacy notice to submit." }),
+  // The form's per-visit draft id, the same one the upload-url route
+  // put in every key it issued (`r2-media/<draftId>/...`). Binding the
+  // media keys to it means a submitter can only attach files uploaded
+  // from their own form — not someone else's object, which would then
+  // also be deleted when this complaint is purged.
+  draftId: z.uuid(),
   media: z
     .array(
       z.object({
@@ -44,7 +50,10 @@ const complaintSchema = z.object({
     )
     .max(MAX_MEDIA)
     .default([]),
-});
+}).refine(
+  (v) => v.media.every((m) => m.key.startsWith(`${R2_COMPLAINT_KEY_PREFIX}${v.draftId}/`)),
+  { path: ["media"], message: "One of the attachments didn't come from this form. Please re-add it." }
+);
 
 async function getClientIp(): Promise<string> {
   const hdrs = await headers();
@@ -57,6 +66,7 @@ export type SubmitComplaintInput = {
   description: string;
   contact_phone: string;
   consent: boolean;
+  draftId: string;
   media: { key: string; kind: "image" | "video" }[];
 };
 
