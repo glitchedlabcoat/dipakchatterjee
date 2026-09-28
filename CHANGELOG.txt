@@ -8,6 +8,82 @@ rewritten.
 
 --------------------
 
+[v1.18.0] - 2026-09-28
+
+* Added: Click-to-load consent for third-party embeds (built
+  2026-09-27, approved by Mr. Dipak Chatterjee 2026-09-28). New
+  components/embeds/EmbedConsentGate.tsx shows a card explaining that
+  loading the embed connects the visitor's browser to that company
+  (which receives their IP address and may set cookies), with a
+  "Load ... content" button and a link to the privacy page. Nothing
+  from the provider, including Meta's JS SDK, is requested until the
+  click. Consent is per provider, kept in sessionStorage (in-memory
+  fallback); one click covers every embed from that provider for the
+  session. PostEmbed checks the gate before the Facebook branch.
+  Verified in Edge: 0 Facebook requests before the click, SDK + post
+  iframe after it, second post in the same session loads directly,
+  fresh session sees the gate again, no CSP errors.
+* Added: /privacy page ("Privacy & Copyright"): plain-language notice
+  matching the code (no public cookies/analytics, what a complaint
+  stores, retention read live from site_settings, IP only for the
+  in-memory rate limit, processors Supabase/Cloudflare R2/Render,
+  third-party content, children, rights, copyright takedown notices
+  to the office email). Fixed footer link; added to sitemap.xml.
+* Added: complaint form consent - a required checkbox (privacy notice,
+  details used only to resolve the issue, 18+ or parent/guardian
+  permission) replaces the passive "By submitting..." line. Enforced
+  server-side too (consent: z.literal(true)).
+* Added: branded 404 page (app/not-found.tsx). Next's built-in 404 was
+  prerendered, so its scripts had no CSP nonce and were all blocked.
+  The new page calls await connection() to render per request
+  (build shows "f /_not-found"); verified 12/12 scripts carry the
+  nonce. Reads nothing from Supabase.
+* Added: temporary public diagnostic GET /api/debug-client-ip (delete
+  once answered): echoes the caller's own IP-related request headers
+  (fixed allowlist, never cookies/authorization) so the rate limiters
+  can move off the client-controlled leftmost X-Forwarded-For entry.
+  No database access, no logging.
+* Security: Strict-Transport-Security: max-age=31536000 on every
+  response (no includeSubDomains).
+* Security: /api/cron/purge-complaints returns 404 while CRON_SECRET
+  is unset instead of running open (each call was a service-role
+  Supabase query). The admin complaints page still purges on load.
+* Security: lib/otp-login.ts - with 2FA on and Resend unconfigured,
+  production refuses to issue a login code instead of logging it.
+* Removed: Discord push notifications (.github/workflows/
+  discord-notify.yml, the only workflow). M.E.K.S.U.S. covers it now.
+* Changed: .env.example rewritten - every variable the code reads,
+  tagged [LOCAL + RENDER] / [RENDER ONLY] / [OPTIONAL], checklist at
+  the top, HOSTNAME documented, RESEND_FROM_EMAIL sender format, new
+  cron behaviour, corrected 2FA comment. Discord section removed.
+
+Files edited (paths only):
+  - components/embeds/EmbedConsentGate.tsx (new)
+  - components/posts/PostEmbed.tsx
+  - app/(site)/privacy/page.tsx (new)
+  - components/site/SiteFooter.tsx
+  - app/sitemap.ts
+  - components/complaints/ComplaintForm.tsx
+  - app/(site)/complaints/actions.ts
+  - lib/otp-login.ts
+  - app/not-found.tsx (new)
+  - app/api/debug-client-ip/route.ts (new, temporary)
+  - next.config.ts
+  - app/api/cron/purge-complaints/route.ts
+  - .github/workflows/discord-notify.yml (deleted)
+  - .env.example
+
+Today's Checkpoint (2026-09-28):
+  Open ledger for anything else shipped later today - appended here
+  rather than opening a new version entry.
+  * Investigated: Supabase "Logs Ingest" at 3.28 GB of the free 1 GB
+    this cycle. Caused by 11-24 Sep health-check/telemetry traffic
+    (fixed 2026-09-24 in v1.17.0); now ~5 MB/day. The ~11.6k
+    PgBouncer lines/day are Supabase's own pooler health checks
+    (pgbouncer@[::1] every 15 s), not this app. No code change.
+
+--------------------
+
 [v1.17.0] - 2026-09-24
 
 * Added: Temporary diagnostic endpoint GET /api/admin/debug-fb-resolve

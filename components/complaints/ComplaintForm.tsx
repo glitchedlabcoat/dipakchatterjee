@@ -11,6 +11,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -26,6 +27,7 @@ const formSchema = z.object({
     .trim()
     .max(20)
     .refine((v) => v === "" || v.length >= 6, "Please enter a valid phone number, or leave this blank."),
+  consent: z.boolean().refine((v) => v, "Please confirm this to submit your complaint."),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -45,7 +47,7 @@ export default function ComplaintForm() {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: { description: "", contact_phone: "" },
+    defaultValues: { description: "", contact_phone: "", consent: false },
   });
 
   function submit(values: FormValues) {
@@ -54,6 +56,7 @@ export default function ComplaintForm() {
       const res = await submitComplaint({
         description: values.description,
         contact_phone: values.contact_phone,
+        consent: values.consent,
         media,
       });
 
@@ -137,6 +140,27 @@ export default function ComplaintForm() {
         <ComplaintMediaPicker draftId={draftId} onChange={(next, busy) => { setMedia(next); setMediaBusy(busy); }} />
       </div>
 
+      <div>
+        <label htmlFor="consent" className="flex items-start gap-2.5 text-sm text-ink-600 leading-relaxed">
+          <input
+            id="consent"
+            type="checkbox"
+            {...register("consent")}
+            className="mt-1 shrink-0 rounded border-line"
+          />
+          <span>
+            I have read the{" "}
+            <Link href="/privacy" target="_blank" className="text-[var(--theme-primary)] font-medium underline">
+              privacy notice
+            </Link>{" "}
+            and agree that my complaint, phone number and attachments are shared with the office
+            only to resolve this issue. I am 18 or older, or I am a parent or guardian submitting on a
+            minor&apos;s behalf. <span className="text-rust">*</span>
+          </span>
+        </label>
+        {errors.consent && <p className="text-xs text-rust mt-1.5">{errors.consent.message}</p>}
+      </div>
+
       {serverError && (
         <p className="text-sm text-rust" role="alert">
           {serverError}
@@ -152,10 +176,6 @@ export default function ComplaintForm() {
         {isPending ? "Submitting…" : mediaBusy ? "Waiting for uploads…" : "Submit Complaint"}
       </button>
 
-      <p className="text-xs text-ink-400 text-center leading-relaxed">
-        By submitting, you agree that your details are shared with our office for the sole
-        purpose of resolving this issue.
-      </p>
     </form>
   );
 }

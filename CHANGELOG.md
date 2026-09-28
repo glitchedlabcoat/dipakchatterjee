@@ -5,6 +5,46 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.18.0] - 2026-09-28
+
+### Added
+
+- Click-to-load consent for third-party embeds (built 2026-09-27, approved by Mr. Dipak Chatterjee 2026-09-28). New `components/embeds/EmbedConsentGate.tsx`: a post's Facebook/YouTube/Instagram embed now shows a card explaining that loading it connects the visitor's browser to that company (which receives their IP address and may set cookies), with a "Load … content" button and a link to the privacy page. Nothing from the provider — including Meta's JS SDK — is requested until the click. Consent is per provider, kept in `sessionStorage` (in-memory fallback), and one click loads every embed from that provider for the rest of the session. `components/posts/PostEmbed.tsx` checks the gate before the Facebook branch, so `FacebookEmbed` never mounts without consent. Verified in Edge: 0 Facebook requests before the click; SDK + post iframe load after it; a second post in the same session loads directly; a fresh session sees the gate again; no CSP errors.
+- New `/privacy` page ("Privacy & Copyright", `app/(site)/privacy/page.tsx`): plain-language notice matching what the code does — no public cookies or analytics, what a complaint stores and who sees it, retention read live from `site_settings.complaint_expiration_days`, IP used only for the in-memory rate limit, processors (Supabase, Cloudflare R2, Render), third-party content, children, rights, and how to send a copyright takedown notice (contact = the office email setting). Linked from a fixed "Privacy & Copyright" item in the footer's bottom bar (`components/site/SiteFooter.tsx`) and added to `app/sitemap.ts`.
+- Complaint form consent: a required checkbox (read the privacy notice, agree to the office using the details only to resolve the issue, and confirm 18+ or a parent/guardian's permission) replaces the old passive "By submitting…" line. Enforced on the server too (`consent: z.literal(true)` in `app/(site)/complaints/actions.ts`), so a request that skips the form still fails.
+- Branded 404 page (`app/not-found.tsx`). Previously unmatched URLs got Next's built-in 404, which is prerendered at build time, so none of its scripts carried the per-request CSP nonce and `proxy.ts`'s policy blocked all of them. The new page calls `await connection()` so it renders per request (build table now shows `ƒ /_not-found`); verified 12/12 scripts carry the nonce. It reads nothing from Supabase, so crawler 404s cost no database traffic.
+- Temporary public diagnostic `GET /api/debug-client-ip`, to be deleted once answered: echoes the caller's own IP-related request headers (fixed allowlist, never cookies or authorization) plus the names of the rest, so the rate limiters can be moved off the client-controlled leftmost `X-Forwarded-For` entry onto whichever header Render actually sets. No database access, no logging.
+
+### Security
+
+- `Strict-Transport-Security: max-age=31536000` added to every response (`next.config.ts`); no `includeSubDomains`.
+- `/api/cron/purge-complaints` now returns 404 while `CRON_SECRET` is unset instead of running open. Every call was a service-role Supabase query anyone could trigger; nothing schedules it, and the admin complaints page still purges expired complaints on every load.
+- `lib/otp-login.ts`: with 2FA on and Resend unconfigured, production now refuses to issue a login code instead of printing it to the server log (local development still prints it).
+
+### Removed
+
+- Discord push notifications: deleted `.github/workflows/discord-notify.yml` (the repository's only workflow). Deploy/activity notifications now come from M.E.K.S.U.S.
+
+### Changed
+
+- `.env.example` rewritten: every variable the code reads, each tagged `[LOCAL + RENDER]`, `[RENDER ONLY]` or `[OPTIONAL]`, with a checklist at the top; documents `HOSTNAME`, the sender format for `RESEND_FROM_EMAIL`, the new cron behaviour, and corrects the 2FA comment (OTP is no longer skipped when no provider is set). Discord section removed.
+
+### Files Changed
+
+- `components/embeds/EmbedConsentGate.tsx` (new), `components/posts/PostEmbed.tsx`
+- `app/(site)/privacy/page.tsx` (new), `components/site/SiteFooter.tsx`, `app/sitemap.ts`
+- `components/complaints/ComplaintForm.tsx`, `app/(site)/complaints/actions.ts`
+- `lib/otp-login.ts`
+- `app/not-found.tsx` (new), `app/api/debug-client-ip/route.ts` (new, temporary)
+- `next.config.ts`, `app/api/cron/purge-complaints/route.ts`
+- `.github/workflows/discord-notify.yml` (deleted), `.env.example`
+
+### Today's Checkpoint (2026-09-28)
+
+Open ledger for anything else shipped later today — appended here rather than opening a new version entry.
+
+- Investigated: Supabase "Logs Ingest" at 3.28 GB of the free 1 GB this cycle. Caused by 11–24 Sep's health-check/telemetry traffic (fixed 2026-09-24 in v1.17.0); now ~5 MB/day. The ~11.6k PgBouncer lines/day are Supabase's own pooler health checks (`pgbouncer@[::1]` every 15 s), not this app. No code change needed.
+
 ## [v1.17.0] - 2026-09-24
 
 ### Added

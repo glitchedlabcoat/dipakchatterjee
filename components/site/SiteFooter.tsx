@@ -9,7 +9,12 @@
 // in Settings -> Social media & Follow). No fixed column count: the
 // grid always wraps, so any number of blocks lays out cleanly on both
 // desktop and mobile.
+//
+// The Privacy & Copyright link in the bottom bar is fixed, not a footer
+// block: the privacy notice and takedown contact must stay reachable
+// even if every dashboard-managed block is removed.
 
+import Link from "next/link";
 import { Mail } from "lucide-react";
 import SocialIcon from "@/components/SocialIcon";
 import AnchorAwareLink from "./AnchorAwareLink";
@@ -115,7 +120,12 @@ export default function SiteFooter({
         <p>
           &copy; {new Date().getFullYear()} {copyrightName || DEFAULT_NAME}. All rights reserved.
         </p>
-        <p>{note || DEFAULT_NOTE}</p>
+        <p>
+          {note || DEFAULT_NOTE}{" "}
+          <Link href="/privacy" className="underline hover:text-white">
+            Privacy &amp; Copyright
+          </Link>
+        </p>
       </div>
     </footer>
   );

@@ -10,6 +10,10 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
   },
+  // HTTPS-only for a year once a browser has seen it. No
+  // includeSubDomains: that would also force HTTPS on every subdomain
+  // of the apex, and not all of them are guaranteed to serve it.
+  { key: "Strict-Transport-Security", value: "max-age=31536000" },
 ];
 
 // Supabase Storage stays in remotePatterns below for legacy media not

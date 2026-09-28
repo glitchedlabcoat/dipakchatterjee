@@ -4,21 +4,22 @@
 // service, Supabase pg_cron + pg_net, etc.) to purge expired complaints
 // independent of an admin ever opening the dashboard — the dashboard
 // itself also purges on every load, so this is a belt-and-suspenders
-// mechanism for true background deletion. If CRON_SECRET is set, callers
-// must send it as `Authorization: Bearer <secret>`; if unset, the route
-// is open (the operation is idempotent and only ever deletes rows already
-// past their expiration, so this is low-risk either way).
+// mechanism for true background deletion. Callers must send CRON_SECRET
+// as `Authorization: Bearer <secret>`. With CRON_SECRET unset the route
+// is disabled (404): every call runs a service-role Supabase query, so an
+// open route would let anyone generate database traffic and log volume.
 
 import { NextResponse } from "next/server";
 import { purgeExpiredComplaints } from "@/lib/complaints-cleanup";
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const auth = request.headers.get("authorization");
-    if (auth !== `Bearer ${secret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!secret) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+  const auth = request.headers.get("authorization");
+  if (auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const result = await purgeExpiredComplaints();

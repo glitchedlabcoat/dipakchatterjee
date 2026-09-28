@@ -31,6 +31,10 @@ const complaintSchema = z.object({
     .trim()
     .max(20)
     .refine((v) => v === "" || v.length >= 6, "Enter a valid phone number, or leave it blank"),
+  // Re-checked here, not just trusted from the form: the privacy/age
+  // confirmation is the lawful basis for storing anything at all, so a
+  // request that bypasses the client-side checkbox must still fail.
+  consent: z.literal(true, { error: "Please confirm the privacy notice to submit." }),
   media: z
     .array(
       z.object({
@@ -52,6 +56,7 @@ async function getClientIp(): Promise<string> {
 export type SubmitComplaintInput = {
   description: string;
   contact_phone: string;
+  consent: boolean;
   media: { key: string; kind: "image" | "video" }[];
 };
 

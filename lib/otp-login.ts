@@ -94,9 +94,14 @@ export async function requestLoginOtp(userId: string): Promise<OtpRequestResult>
 
   if (!emailConfigured) {
     // Dev-only fallback so the mandatory OTP step can still be
-    // completed locally without a real provider wired up. Never do
-    // this in production — RESEND_API_KEY/RESEND_FROM_EMAIL should
-    // always be set there.
+    // completed locally without a real provider wired up. Enforced, not
+    // just documented: in production a missing provider fails closed
+    // instead, since printing a live login code would put a working
+    // second factor into the host's log stream (Render) for anyone with
+    // log access.
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("Could not send the login code: email delivery is not configured on the server.");
+    }
     console.warn(
       `[otp] RESEND_API_KEY/RESEND_FROM_EMAIL not set — dev fallback, your login code is: ${code} (expires in 5 minutes)`
     );
