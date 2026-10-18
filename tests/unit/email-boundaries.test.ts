@@ -15,6 +15,8 @@ process.env.RESEND_FROM_EMAIL = "Dipak Chatterjee <office@janatardipak.com>";
 process.env.RESEND_API_KEY = API_KEY;
 process.env.CRON_SECRET = CRON;
 process.env.RESEND_WEBHOOK_SECRET = WEBHOOK_SECRET;
+// Receiving on, so the inbound paths are exercised; one test turns it off.
+process.env.RESEND_INBOUND_ENABLED = "true";
 
 const { MemoryStore } = await import("@/tests/unit/helpers/memory-store");
 const { FakeSender } = await import("@/tests/unit/helpers/fake-sender");
@@ -122,6 +124,31 @@ test("webhook: disabled without a secret, rejects forged/oversized requests, sto
   assert.equal(store.inbound.size, 1);
   assert.equal(afterQueue.length, 1, "body fetch scheduled once");
   afterQueue.length = 0;
+});
+
+test("webhook: while receiving is turned off, received mail is acknowledged and dropped", async () => {
+  const store = fresh();
+  afterQueue.length = 0;
+  delete process.env.RESEND_INBOUND_ENABLED;
+  try {
+    const res = await webhook.POST(webhookRequest(received));
+    assert.equal(res.status, 200, "acknowledged, so Resend doesn't retry");
+    assert.deepEqual(await res.json(), { ok: true, ignored: "receiving is turned off" });
+    assert.equal(store.inbound.size, 0);
+    assert.equal(afterQueue.length, 0, "nothing fetched from Resend");
+
+    const unsigned = new Request("https://janatardipak.com/api/webhooks/resend", { method: "POST", body: JSON.stringify(received) });
+    assert.equal((await webhook.POST(unsigned)).status, 401, "the signature is still checked first");
+
+    const { id } = await store.insertMessage({ kind: "test", dedupeKey: "t-off", toAddresses: ["a@example.com"] });
+    await store.updateMessage(id, { status: "sent", provider_message_id: "re_off" });
+    const delivered = await webhook.POST(
+      webhookRequest({ type: "email.delivered", created_at: new Date().toISOString(), data: { email_id: "re_off" } })
+    );
+    assert.deepEqual(await delivered.json(), { ok: true, result: "updated" }, "delivery reports still work");
+  } finally {
+    process.env.RESEND_INBOUND_ENABLED = "true";
+  }
 });
 
 test("webhook: delivery events update the matching sent message", async () => {

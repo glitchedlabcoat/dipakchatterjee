@@ -14,15 +14,30 @@
 // anything that fails there is retried by the scheduled dispatch.
 //
 // Anti-abuse: the form is public, so a receipt is capped per address
-// (RECEIPTS_PER_ADDRESS_PER_DAY) and overall (RECEIPTS_PER_HOUR). A
-// capped receipt is logged as "skipped" rather than silently dropped.
+// (RECEIPTS_PER_ADDRESS_PER_DAY) and overall (RECEIPTS_PER_HOUR), office
+// notifications are capped per hour (OFFICE_NOTIFICATIONS_PER_HOUR), and
+// the two together per day (COMPLAINT_EMAILS_PER_DAY). A flood of
+// complaints therefore can't flood the office's inbox, or use up the
+// Resend quota the administrators' own email depends on. A capped email is
+// logged as "skipped" (Settings > System email history) rather than
+// silently dropped; the complaint itself is always saved.
 
-import type { EmailStore } from "@/lib/email/store";
+import type { EmailKind, EmailStore } from "@/lib/email/store";
 
 export const RECEIPTS_PER_ADDRESS_PER_DAY = 3;
 export const RECEIPTS_PER_HOUR = 20;
+export const OFFICE_NOTIFICATIONS_PER_HOUR = 30;
+// Half of Resend's free plan (100 emails a day). The other half is left for
+// the administrators' own sending, capped at 50 a day in
+// app/admin/(protected)/emails/actions.ts.
+export const COMPLAINT_EMAILS_PER_DAY = 50;
+
+const COMPLAINT_EMAIL_KINDS: EmailKind[] = ["complaint_receipt", "office_notification"];
 
 const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+const DAILY_CAP_REASON = `Not sent: ${COMPLAINT_EMAILS_PER_DAY} complaint emails (receipts and office notifications) already went out in the last 24 hours (anti-abuse cap).`;
 
 export function receiptDedupeKey(complaintId: string): string {
   return `complaint-receipt:${complaintId}`;
@@ -49,6 +64,7 @@ export async function queueComplaintEmails(
 ): Promise<QueuedComplaintEmails> {
   const ids: string[] = [];
   let receiptQueued = false;
+  const since = (ms: number) => new Date(now.getTime() - ms).toISOString();
 
   let settings;
   try {
@@ -61,15 +77,29 @@ export async function queueComplaintEmails(
   if (settings.officeNotificationEnabled) {
     try {
       const recipient = settings.officeNotificationEmail;
+      let skipped: string | null = "No notification recipient is set (Admin > Emails > Settings).";
+      if (recipient) {
+        const [lastHour, lastDay] = await Promise.all([
+          store.countMessagesSince(["office_notification"], since(HOUR_MS)),
+          store.countMessagesSince(COMPLAINT_EMAIL_KINDS, since(DAY_MS)),
+        ]);
+        skipped =
+          lastHour >= OFFICE_NOTIFICATIONS_PER_HOUR
+            ? `Not sent: ${OFFICE_NOTIFICATIONS_PER_HOUR} office notifications already went out in the last hour (anti-abuse cap). The complaint is saved in Complaints.`
+            : lastDay >= COMPLAINT_EMAILS_PER_DAY
+              ? DAILY_CAP_REASON
+              : null;
+      }
+
       const result = await store.insertMessage({
         kind: "office_notification",
         dedupeKey: officeNotificationDedupeKey(input.complaintId),
         complaintId: input.complaintId,
         toAddresses: recipient ? [recipient] : [],
-        status: recipient ? "pending" : "skipped",
-        lastError: recipient ? null : "No notification recipient is set (Admin > Emails > Settings).",
+        status: skipped ? "skipped" : "pending",
+        lastError: skipped,
       });
-      if (result.inserted && recipient) ids.push(result.id);
+      if (result.inserted && !skipped) ids.push(result.id);
     } catch (err) {
       logError("could not queue the office notification", err);
     }
@@ -78,16 +108,19 @@ export async function queueComplaintEmails(
   if (input.contactEmail && settings.citizenConfirmationEnabled) {
     try {
       const address = input.contactEmail.toLowerCase();
-      const [forAddress, lastHour] = await Promise.all([
-        store.countMessagesSince(["complaint_receipt"], new Date(now.getTime() - 24 * HOUR_MS).toISOString(), address),
-        store.countMessagesSince(["complaint_receipt"], new Date(now.getTime() - HOUR_MS).toISOString()),
+      const [forAddress, lastHour, lastDay] = await Promise.all([
+        store.countMessagesSince(["complaint_receipt"], since(DAY_MS), address),
+        store.countMessagesSince(["complaint_receipt"], since(HOUR_MS)),
+        store.countMessagesSince(COMPLAINT_EMAIL_KINDS, since(DAY_MS)),
       ]);
       const capped =
         forAddress >= RECEIPTS_PER_ADDRESS_PER_DAY
           ? `Not sent: ${RECEIPTS_PER_ADDRESS_PER_DAY} receipts already went to this address in the last 24 hours.`
           : lastHour >= RECEIPTS_PER_HOUR
             ? `Not sent: more than ${RECEIPTS_PER_HOUR} receipts in the last hour (anti-abuse cap).`
-            : null;
+            : lastDay >= COMPLAINT_EMAILS_PER_DAY
+              ? DAILY_CAP_REASON
+              : null;
 
       const result = await store.insertMessage({
         kind: "complaint_receipt",

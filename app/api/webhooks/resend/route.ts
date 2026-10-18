@@ -1,9 +1,11 @@
 // app/api/webhooks/resend/route.ts
 //
 // The one Resend webhook endpoint (Resend's free plan allows one): subscribe
-// it to `email.received` plus the delivery events (`email.sent`,
-// `email.delivered`, `email.delivery_delayed`, `email.bounced`,
-// `email.complained`, `email.failed`, `email.suppressed`).
+// it to the delivery events (`email.sent`, `email.delivered`,
+// `email.delivery_delayed`, `email.bounced`, `email.complained`,
+// `email.failed`, `email.suppressed`), and to `email.received` only once
+// receiving is turned on (RESEND_INBOUND_ENABLED, lib/email/config.ts).
+// While it's off, received-mail events are acknowledged and dropped.
 //
 // Order matters: size limit, then the Svix signature over the RAW body
 // (RESEND_WEBHOOK_SECRET), and only then JSON parsing. Unsigned, stale
@@ -16,7 +18,7 @@
 // ignored, so Resend doesn't keep retrying them.
 
 import { NextResponse, after } from "next/server";
-import { getVerifiedDomain, getWebhookSecret } from "@/lib/email/config";
+import { getVerifiedDomain, getWebhookSecret, isInboundEnabled } from "@/lib/email/config";
 import { verifyWebhookSignature } from "@/lib/email/webhook-signature";
 import { applyDeliveryEvent, fetchInboundBody, ingestReceived, isDeliveryEvent, parseReceivedEvent } from "@/lib/email/inbound";
 import { createEmailRuntime } from "@/lib/email/runtime";
@@ -59,6 +61,7 @@ export async function POST(request: Request) {
   const runtime = createEmailRuntime();
 
   if (type === "email.received") {
+    if (!isInboundEnabled()) return NextResponse.json({ ok: true, ignored: "receiving is turned off" });
     const parsed = parseReceivedEvent(event.data, event.created_at);
     if (!parsed.ok) return NextResponse.json({ ok: true, ignored: parsed.error });
 

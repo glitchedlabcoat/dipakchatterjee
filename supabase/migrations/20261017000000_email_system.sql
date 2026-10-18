@@ -2,13 +2,14 @@
 -- reminders, an outbound delivery log, an inbound inbox, and the admin
 -- Emails sections (Inbox, Drafts, Outbox, Sent, Trashed, New Message).
 --
--- NOT APPLIED. Review, then run it in the Supabase SQL editor (the
--- repo's migration history was pruned on 2026-09-24, so `supabase db
--- push` would complain about missing remote versions). Checked
--- 2026-10-18: none of these tables exist in production yet, so the
--- drafts/trash columns were folded into this one file instead of a
--- second migration. Section 5 makes it safe to re-run, including over
--- an older copy of this file.
+-- Run it in the Supabase SQL editor (the repo's migration history was
+-- pruned on 2026-09-24, so `supabase db push` would complain about
+-- missing remote versions). The drafts/trash columns were folded into
+-- this one file, not a second migration, while none of these tables
+-- existed in production. Section 5 makes it safe to re-run, including
+-- over an older copy of this file: on 2026-10-18 production had the
+-- 2026-10-17 draft (no queued_at, trashed_at or trashed_by), and
+-- running this version adds what it lacked.
 --
 -- Additive and idempotent: it creates three new tables and, defensively,
 -- re-adds complaints.contact_email with IF NOT EXISTS. That column is in

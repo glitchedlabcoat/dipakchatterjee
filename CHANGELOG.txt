@@ -22,7 +22,8 @@ site works as before and the Emails pages say so.
     message view (plain text by default; sanitised HTML only in a
     sandboxed frame without scripts; SPF/DKIM/DMARC result;
     attachments listed, never downloaded); reply, mark unread, Move
-    to Trashed.
+    to Trashed. OFF FOR NOW: receiving is turned off (see Security),
+    so the Inbox says so and stays empty.
   - Drafts: Save draft stores the message in the database, so it
     survives reloads, other browsers and redeploys; reopening resumes
     it in New Message. A save from an older tab is refused instead of
@@ -46,7 +47,9 @@ site works as before and the Emails pages say so.
   complaint text, phone, attachments or a link. Capped at 3 per
   address per day and 20 per hour site-wide.
 * Added: new-complaint notification with a link to
-  /admin/complaints?complaint=<id> (still behind the login).
+  /admin/complaints?complaint=<id> (still behind the login). Capped
+  at 30 an hour; receipts and notifications together at 50 per 24
+  hours.
 * Added: reminders about unresolved complaints (daily, weekly,
   monthly, every N days or months; any timezone, default
   Asia/Kolkata), at most one per occurrence, never a backlog.
@@ -61,8 +64,9 @@ site works as before and the Emails pages say so.
 * Added: /api/webhooks/resend: Svix signature over the raw body
   (5-minute tolerance, constant-time), 256 KB limit, 404 while
   RESEND_WEBHOOK_SECRET is unset; delivery events never move a status
-  backwards; email.received stored once per Resend id, only for the
-  site's own domain, then its body fetched with bounded sizes.
+  backwards; email.received (only while receiving is turned on)
+  stored once per Resend id, only for the site's own domain, then its
+  body fetched with bounded sizes.
 * Added: supabase/migrations/20261017000000_email_system.sql
   (additive, idempotent, NOT applied): email_settings, email_messages
   (incl. draft status, queued_at, trashed_at/trashed_by),
@@ -91,6 +95,26 @@ site works as before and the Emails pages say so.
   escaped plain text. Secrets only in Render env vars; logs and
   activity log carry ids, statuses and counts, not addresses or
   content.
+* Security: public form rate limits key on the visitor's real address
+  (2026-09-26 audit S1). The complaint limit (5 an hour) and the
+  upload-URL limit (30 an hour) used the leftmost X-Forwarded-For
+  entry, which a visitor can set to anything (confirmed by a
+  production probe on 2026-10-18, both hosts). Both now use
+  CF-Connecting-IP (lib/client-ip.ts), which Cloudflare sets on every
+  request to Render and refuses from the visitor (error 1000); IPv6
+  is limited per /64. The temporary GET /api/debug-client-ip
+  diagnostic is removed.
+* Security: complaints can't flood the office or use up the Resend
+  quota: office notifications capped at 30 an hour; receipts plus
+  notifications at 50 per 24 hours (half of Resend's free 100 a day,
+  leaving the rest for the administrators' own 50 a day), on top of
+  the receipt caps. Capped emails are logged as skipped; the
+  complaint is always saved. Skipped rows no longer count toward any
+  sending cap.
+* Security: receiving is turned off unless RESEND_INBOUND_ENABLED=
+  true: after the signature check the webhook acknowledges
+  email.received and drops it; nothing is stored or fetched from
+  Resend. Delivery reports are unaffected.
 * Changed: /privacy (last updated 18 October 2026) describes the
   email field, the receipt, Resend as a processor, and that email
   exchanged with the office is kept up to a year. NEEDS MR. DIPAK'S
@@ -101,17 +125,21 @@ site works as before and the Emails pages say so.
 * Changed: retention - system emails 90 days; an administrator's sent
   messages and replies 365 days, like received mail; drafts never;
   trashing doesn't change it.
-* Changed: .env.example Email (Resend) section; new dependency
+* Changed: .env.example Email (Resend) section (incl.
+  RESEND_INBOUND_ENABLED); new dependency
   sanitize-html 2.18.0 (pinned) and @types/sanitize-html. npm audit
   --omit=dev: 0 vulnerabilities.
 * Fixed: a unit test (receipt cap) depended on the real date and
   failed after 2026-10-18 06:00 UTC. Every call now passes the test's
   injected clock; a regression test runs the cap in 2020 and 2035.
-* Tests: npm test 89 (68 earlier, updated where access rules changed
-  on purpose, plus 21 new); migration on a disposable Postgres
-  (PGlite) 14/14; end-to-end against the production build with mock
-  Supabase and Resend 18/18; headless Edge 4/4; the 2026-09-28 smoke
-  suite still passes (11, 0 failed).
+* Tests: npm test 98 (68 earlier, updated where access rules changed
+  on purpose, plus 21 new, plus 9 for the visitor-address key, the
+  complaint-email caps and receiving off); migration on a disposable
+  Postgres (PGlite) 14/14; end-to-end against the production build
+  with mock Supabase and Resend 18/18; headless Edge 4/4; the
+  2026-09-28 smoke suite passes (12, 0 failed), now including its
+  X-Forwarded-For rotation test (a known failure until this release);
+  abuse-fix checks with receiving off, as on Render: 5/5.
 
 Files edited (paths only):
   - lib/email/ (new, 16 files incl. mailbox.ts)
@@ -123,6 +151,8 @@ Files edited (paths only):
   - app/(site)/complaints/actions.ts
   - components/complaints/ComplaintForm.tsx
   - app/(site)/privacy/page.tsx
+  - lib/client-ip.ts (new), app/api/complaints/upload-url/route.ts
+  - app/api/debug-client-ip/route.ts (deleted)
   - app/admin/(protected)/complaints/ (page, ComplaintList,
     ComplaintDetailModal)
   - components/admin/AdminSidebar.tsx

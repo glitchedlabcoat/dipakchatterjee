@@ -12,7 +12,7 @@ Email system and the admin **Emails** section, built on the existing stack (Rend
 ### Added
 
 - **Emails section** (`/admin/emails`, sidebar "Emails") with six sections:
-  - **Inbox:** mail received through Resend, with search, an unread filter, and a safe message view (plain text by default; sanitised HTML only in a sandboxed frame without scripts; SPF/DKIM/DMARC result; attachments listed, never downloaded). Reply, mark unread, Move to Trashed.
+  - **Inbox:** mail received through Resend, with search, an unread filter, and a safe message view (plain text by default; sanitised HTML only in a sandboxed frame without scripts; SPF/DKIM/DMARC result; attachments listed, never downloaded). Reply, mark unread, Move to Trashed. **Off for now:** receiving is turned off (see Security), so the Inbox says so and stays empty.
   - **Drafts:** Save draft stores the message in the database, so it survives reloads, other browsers and redeploys; reopening resumes it in New Message. A save from an older tab is refused instead of overwriting newer text.
   - **Outbox:** an administrator's messages, replies and test emails that Resend hasn't accepted yet (queued, sending, failed, not sent), with the error, attempts, the next try, and Retry.
   - **Sent:** messages Resend accepted, with the latest delivery report from the webhook (Accepted by Resend → Delivered, Delayed, Bounced, Marked as spam, Suppressed or Failed).
@@ -20,11 +20,11 @@ Email system and the admin **Emails** section, built on the existing stack (Rend
   - **New Message:** To (up to 10, validated and de-duplicated), Subject (200), plain-text Message (20,000); Send, Save draft, Discard.
   - Settings (sender, reply-to, notification recipient, toggles, reminder schedule, provider and scheduler status, test email to yourself) is a secondary link; its history now lists system emails only.
 - **Citizen receipt (optional):** an optional Email field on `/complaints`; the citizen gets the reference number, submission time and office contact, never the complaint text, phone number, attachments or a link. Capped at 3 per address per day and 20 per hour site-wide.
-- **New-complaint notification** to the configured recipient, with a link to `/admin/complaints?complaint=<id>` (still behind the dashboard login).
+- **New-complaint notification** to the configured recipient, with a link to `/admin/complaints?complaint=<id>` (still behind the dashboard login). Capped at 30 an hour; receipts and notifications together at 50 per 24 hours.
 - **Reminders** about unresolved complaints (daily, weekly, monthly, every N days or months; any timezone, default Asia/Kolkata), at most one per occurrence, never a backlog.
 - **Outbox and delivery log** (`email_messages`): every email is written to the database before it is sent, with `Idempotency-Key` = its unique dedupe key; compare-and-set claims; byte-identical retries at 1 min, 5 min, 30 min, 2 h and 6 h within 23 hours; receipts and notifications sent in `after()` so a complaint never waits on, or fails because of, email.
 - **`/api/cron/email`** (`Authorization: Bearer <CRON_SECRET>`, 404 while unset): reminder, due sends and retries, pending inbound bodies, retention, heartbeat.
-- **`/api/webhooks/resend`:** Svix signature over the raw body (5-minute tolerance, constant-time), 256 KB limit, 404 while `RESEND_WEBHOOK_SECRET` is unset; delivery events never move a status backwards; `email.received` stored once per Resend id, only for the site's own domain, then its body fetched with bounded sizes.
+- **`/api/webhooks/resend`:** Svix signature over the raw body (5-minute tolerance, constant-time), 256 KB limit, 404 while `RESEND_WEBHOOK_SECRET` is unset; delivery events never move a status backwards; `email.received` (only while receiving is turned on) stored once per Resend id, only for the site's own domain, then its body fetched with bounded sizes.
 - `supabase/migrations/20261017000000_email_system.sql` (additive, idempotent, **not applied**): `email_settings`, `email_messages` (incl. `draft` status, `queued_at`, `trashed_at`/`trashed_by`), `email_inbound` (incl. `trashed_at`/`trashed_by`), select-only RLS via `is_admin()`, no write policies. Re-runnable, including over the 2026-10-17 draft of the file. `supabase/snippets/email-scheduler-pg-cron.sql`: an optional free pg_cron scheduler (not applied).
 - `docs/email-system.md` (runbook) and `lib/email/mailbox.ts` (the section rules shared by pages, actions and tests).
 
@@ -35,6 +35,9 @@ Email system and the admin **Emails** section, built on the existing stack (Rend
 - **No relay:** the sender is fixed server-side to the verified domain; 20 sends an hour and 50 a day across all administrators, counted when a message enters the Outbox (drafts can't be stockpiled past the limit); test emails only to the signed-in administrator's own address.
 - Received HTML is sanitised (scripts, forms, styles, event handlers, CSS `url()`, remote images and `javascript:` links removed) and shown without scripts or same-origin access. Message bodies the office sent are shown as escaped plain text.
 - Secrets live only in Render environment variables; the UI shows only whether each is set. Logs and activity-log entries carry ids, statuses and counts, not addresses or content.
+- **Public form rate limits key on the visitor's real address** (2026-09-26 audit S1). The complaint limit (5 an hour) and the attachment upload-URL limit (30 an hour) used the leftmost `X-Forwarded-For` entry, which a visitor can set to anything: a probe of production on 2026-10-18 showed a forged value arriving in front of the real chain on both hosts. Both now use `CF-Connecting-IP` (`lib/client-ip.ts`), which Cloudflare sets on every request to Render and refuses from the visitor (error 1000); IPv6 is limited per /64. The temporary `GET /api/debug-client-ip` diagnostic is removed.
+- **Complaints can't be used to flood the office or use up the Resend quota:** office notifications are capped at 30 an hour, and receipts plus notifications at 50 per 24 hours (half of Resend's free 100 a day, leaving the rest for the administrators' own 50-a-day limit), on top of the receipt caps. A capped email is logged as skipped with its reason; the complaint is always saved. Skipped rows no longer count toward any sending cap, so notifications logged while no recipient was set can't block receipts.
+- **Receiving is turned off** unless `RESEND_INBOUND_ENABLED=true`: after the signature check, the webhook acknowledges `email.received` and drops it, so nothing is stored and nothing is fetched from Resend. Delivery reports are unaffected.
 
 ### Changed
 
@@ -42,7 +45,7 @@ Email system and the admin **Emails** section, built on the existing stack (Rend
 - Complaint form consent now says "contact details" instead of "phone number".
 - Admin complaint detail shows the citizen's email as a mailto link; `/admin/complaints?complaint=<uuid>` opens that complaint, or says it's no longer available.
 - Retention: system emails 90 days; an administrator's sent messages and replies 365 days, like received mail; drafts never; trashing doesn't change it.
-- `.env.example`: Email (Resend) section with `RESEND_WEBHOOK_SECRET`; `CRON_SECRET` also drives `/api/cron/email`.
+- `.env.example`: Email (Resend) section with `RESEND_WEBHOOK_SECRET` and `RESEND_INBOUND_ENABLED`; `CRON_SECRET` also drives `/api/cron/email`.
 - New dependency `sanitize-html` 2.18.0 (pinned) and `@types/sanitize-html`; `npm audit --omit=dev`: 0 vulnerabilities.
 
 ### Fixed
@@ -51,14 +54,15 @@ Email system and the admin **Emails** section, built on the existing stack (Rend
 
 ### Tests
 
-- `npm test`: 89 `node:test` tests (68 earlier, updated where access rules changed on purpose, plus 21 for drafts, concurrency, exactly-once sending, Outbox failure and retry, Trashed, retention and authorization of every action).
-- The migration on a disposable Postgres (PGlite): 14/14. End-to-end against the production build with mock Supabase and Resend: 18/18. Headless Edge: 4/4 (every section, desktop and phone, no CSP violations; draft persistence across a reload; sandboxed received HTML; Trash and Restore). The 2026-09-28 smoke suite still passes (11, 0 failed).
+- `npm test`: 98 `node:test` tests (68 earlier, updated where access rules changed on purpose, plus 21 for drafts, concurrency, exactly-once sending, Outbox failure and retry, Trashed, retention and authorization of every action, plus 9 for the visitor-address key, the complaint-email caps and receiving off).
+- The migration on a disposable Postgres (PGlite): 14/14. End-to-end against the production build with mock Supabase and Resend: 18/18. Headless Edge: 4/4 (every section, desktop and phone, no CSP violations; draft persistence across a reload; sandboxed received HTML; Trash and Restore). The 2026-09-28 smoke suite passes (12, 0 failed), now including its X-Forwarded-For rotation test, a known failure until this release. Checks for the abuse fixes against the production build, with receiving off as on Render: 5/5 (both rate limits hold under a forged X-Forwarded-For, notifications stop at 30 an hour with every complaint saved, received mail dropped, the diagnostic route gone).
 
 ### Files Changed
 
 - `lib/email/` (new, 16 files incl. `mailbox.ts`), `app/api/cron/email/route.ts`, `app/api/webhooks/resend/route.ts`
 - `app/admin/(protected)/emails/` (new): `actions.ts`, `shared.tsx`, `EmailsHeader.tsx`, `MessageList.tsx`, `TrashButton.tsx`, `page.tsx`, `[id]/`, `drafts/`, `outbox/`, `sent/`, `trash/`, `message/[id]/`, `new/`, `settings/`
 - `app/(site)/complaints/actions.ts`, `components/complaints/ComplaintForm.tsx`, `app/(site)/privacy/page.tsx`
+- `lib/client-ip.ts` (new), `app/api/complaints/upload-url/route.ts`; `app/api/debug-client-ip/route.ts` (deleted)
 - `app/admin/(protected)/complaints/page.tsx`, `ComplaintList.tsx`, `ComplaintDetailModal.tsx`, `components/admin/AdminSidebar.tsx`, `lib/complaint-status.ts`
 - `types/database.types.ts`, `types/domain.ts`
 - `supabase/migrations/20261017000000_email_system.sql`, `supabase/snippets/email-scheduler-pg-cron.sql`

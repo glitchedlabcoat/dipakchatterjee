@@ -52,7 +52,8 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         "If something can't be sent, it waits in the Outbox with the reason and a Retry button. A message is never sent twice, even if Send is pressed twice.",
         "Moving a message to Trashed doesn't delete it: Restore puts it back. Trashing a sent email doesn't take it back from the person who received it.",
         "People who file a complaint can add their email address (it's optional) and get a confirmation with their reference number. It never repeats what they wrote, their phone number or their photos. The office can also be emailed about every new complaint, and get regular reminders about unresolved ones.",
-        "This is switched off until it's set up. A few one-time steps in the email, hosting and database accounts are needed first, and the Inbox only starts receiving mail once the domain's mail settings are added.",
+        "The complaint form is better protected against spam. Faking an internet address no longer gets round the limit of 5 complaints an hour, and a flood of complaints can't flood the office with emails or use up the daily email allowance: extra emails are skipped and listed in Settings, and every complaint is still saved.",
+        "Receiving email is switched off for now, so the Inbox stays empty. Sending works: confirmations, office alerts, reminders and New Message.",
       ],
       tutorial: [
         "Open Emails from the sidebar.",
@@ -75,6 +76,11 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
           type: "security",
           text: "Every dashboard administrator (any profile, ADMIN or USER) has full access; every server action calls requireAdmin(); read policies use is_admin() (= has a profile); no Emails code uses requireOwner. Exactly once: dedupe_key = Resend Idempotency-Key, and sending a draft is a compare-and-set draft -> pending; trashed rows are never claimed. Sender fixed server-side; 20/hour and 50/day across all administrators counted on queued_at; tests only to the signed-in administrator's own address.",
           files: ["app/admin/(protected)/emails/actions.ts", "lib/email/store.ts", "lib/email/outbox.ts"],
+        },
+        {
+          type: "security",
+          text: "Public form rate limits (complaints 5/hour, upload URLs 30/hour) now key on CF-Connecting-IP instead of the client-controlled leftmost X-Forwarded-For entry (09-26 audit S1; a production probe on 2026-10-18 showed Cloudflare refuses a client-sent CF-Connecting-IP with error 1000, overwrites True-Client-IP and strips X-Real-IP, while X-Forwarded-For keeps the forged value in front). IPv6 is keyed by /64. The temporary /api/debug-client-ip route is removed. Complaint emails are capped: office notifications 30/hour, receipts + notifications 50 per 24 hours (half of Resend's free 100/day), skipped rows excluded from every cap count. Receiving is off unless RESEND_INBOUND_ENABLED=true: email.received is acknowledged and dropped after the signature check.",
+          files: ["lib/client-ip.ts (new)", "app/(site)/complaints/actions.ts", "app/api/complaints/upload-url/route.ts", "app/api/debug-client-ip/route.ts (deleted)", "lib/email/complaint-emails.ts", "lib/email/store.ts", "lib/email/config.ts", "app/api/webhooks/resend/route.ts"],
         },
         {
           type: "added",
@@ -103,7 +109,7 @@ export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
         },
         {
           type: "fixed",
-          text: "A receipt-cap unit test depended on the real date (it failed after 2026-10-18 06:00 UTC); every call now passes the injected test clock, with a regression test at dates in 2020 and 2035. npm test: 89 tests; end-to-end 18/18; headless Edge 4/4.",
+          text: "A receipt-cap unit test depended on the real date (it failed after 2026-10-18 06:00 UTC); every call now passes the injected test clock, with a regression test at dates in 2020 and 2035. npm test: 98 tests; end-to-end 18/18; headless Edge 4/4; abuse-fix checks 5/5; the 2026-09-28 smoke suite 12 passed, 0 failed.",
           files: ["tests/unit/email-outbox.test.ts", "tests/unit/email-mailbox.test.ts (new)", "tests/unit/email-boundaries.test.ts"],
         },
       ],

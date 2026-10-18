@@ -204,6 +204,7 @@ export class MemoryStore implements EmailStore {
     return this.messageList().filter(
       (m) =>
         kinds.includes(m.kind) &&
+        m.status !== "skipped" &&
         m.queued_at !== null &&
         m.queued_at >= sinceIso &&
         (!toAddress || m.to_addresses.includes(toAddress))

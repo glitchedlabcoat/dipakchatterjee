@@ -9,7 +9,7 @@ How the site's email works, what has to be configured before it does, and how to
 | **A. Citizen receipt.** An optional email field on `/complaints`. If filled, the citizen gets an email with the reference number, submission time and office contact. It never includes the complaint text, phone number, attachments or any link to the complaint. | `lib/email/complaint-emails.ts`, `templates.ts` | Migration, `RESEND_API_KEY`, `RESEND_FROM_EMAIL` |
 | **B. Office notification.** Every new complaint emails the notification recipient its reference, time, attachment count, and a button to `/admin/complaints?complaint=<id>`. That page still requires a dashboard login; the link is not public. | same | same, plus a recipient set in Settings |
 | **C. Reminders.** A summary of unresolved complaints, sent daily, weekly, monthly, every N days or every N months at a set time and timezone (default Asia/Kolkata). At most one email per scheduled occurrence. | `lib/email/schedule.ts`, `reminders.ts`, `/api/cron/email` | same, plus `CRON_SECRET` and a scheduler |
-| **D. Inbound mail.** Mail sent to `@janatardipak.com` appears in the dashboard inbox and can be answered. | `/api/webhooks/resend`, `lib/email/inbound.ts` | Receiving enabled in Resend, an MX record, a webhook, `RESEND_WEBHOOK_SECRET`, a Full-access API key |
+| **D. Inbound mail.** Mail sent to `@janatardipak.com` appears in the dashboard inbox and can be answered. **Turned off for now** (2026-10-18: the office doesn't receive mail at the domain); the webhook acknowledges and drops `email.received` events and the Inbox says receiving is off. | `/api/webhooks/resend`, `lib/email/inbound.ts` | `RESEND_INBOUND_ENABLED=true`, receiving enabled in Resend, an MX record, a webhook, `RESEND_WEBHOOK_SECRET`, a Full-access API key |
 | **E. Dashboard.** `/admin/emails` has six sections: **Inbox**, **Drafts**, **Outbox**, **Sent**, **Trashed** and **New Message**, plus a Settings link (sender, recipient, toggles, schedule, a test email and the history of system emails). | `app/admin/(protected)/emails/`, rules in `lib/email/mailbox.ts` | Migration |
 
 ### The six sections
@@ -31,6 +31,16 @@ Citizen receipts, new-complaint notifications and reminders never appear in thes
 
 **Limits.** New messages and replies: 20 an hour and 50 a day, shared by all administrators, counted when a message enters the Outbox (`queued_at`), so drafts don't use the limit and old drafts can't be stockpiled past it. Test emails: 5 an hour.
 
+**Anti-abuse on the public form.** `/complaints` accepts 5 submissions an hour per visitor (30 attachment uploads), keyed on Cloudflare's `CF-Connecting-IP` (`lib/client-ip.ts`; IPv6 by /64). A probe of production on 2026-10-18 showed a visitor can't forge that header, while the leftmost `X-Forwarded-For` entry, used before, was theirs to choose. The emails a complaint triggers are capped too, so a flood of complaints can't flood the office's inbox or use up the Resend quota:
+
+| Email | Cap |
+|---|---|
+| Citizen receipt | 3 per address per 24 hours; 20 an hour site-wide |
+| Office notification | 30 an hour |
+| Receipts and notifications together | 50 per 24 hours (half of Resend's free 100 a day; the other half is left for the 50 a day administrators can send) |
+
+A capped email is recorded as "skipped" with the reason (Settings → System email history); the complaint itself is always saved and appears in Complaints. Skipped rows don't count toward any cap. The counters are in-memory per server process for the per-visitor limit (one Render instance) and in the database for the email caps.
+
 ### How sending works
 
 Every email is first written to `email_messages` (an outbox), then sent through Resend's REST API.
@@ -44,11 +54,11 @@ Every email is first written to `email_messages` (an outbox), then sent through 
 
 | | Status |
 |---|---|
-| Code for A–E | Done. Type-check, lint and build pass; 89 unit tests; the migration tested on a disposable Postgres (PGlite); end-to-end and headless-browser runs against mock Supabase and Resend. |
-| Tested against real Resend, Supabase or DNS | **No.** Nothing real has been sent or changed. |
-| Database migration | **Prepared, not applied.** Needs approval (Step 1). |
-| Render environment variables | **Not set by us.** Needs Render dashboard access (Step 2). |
-| Resend webhook, receiving and DNS | **Not done.** Needs Resend and Hostinger access (Steps 3–4). |
+| Code for A–E | Done. Type-check, lint and build pass; 98 unit tests; the migration tested on a disposable Postgres (PGlite); end-to-end and headless-browser runs against mock Supabase and Resend. |
+| Tested against real Resend, Supabase or DNS | **No.** Nothing real has been sent or changed by us. |
+| Database migration | Applied in production on 2026-10-18, but from the **2026-10-17 draft** of the file: a read-only check found `email_messages.queued_at`/`trashed_at`/`trashed_by` and `email_inbound.trashed_at`/`trashed_by` missing. Re-run the current file (Step 1); it is written to upgrade exactly that state. |
+| Render environment variables | `RESEND_API_KEY`, `RESEND_FROM_EMAIL` and `CRON_SECRET` set on Render on 2026-10-18 (Step 2). |
+| Resend webhook | **Not done yet** (Step 3). Receiving and its MX record: **not wanted for now** (Feature D is off). |
 | Scheduler | **Not set up.** Needs Supabase access and a choice of option (Step 5). |
 
 Without the migration, the site keeps working as before:
@@ -79,14 +89,15 @@ Before running it, check that the live `complaints` table looks like the repo's 
 | `RESEND_FROM_EMAIL` | The default sender, e.g. `Dipak Chatterjee <office@janatardipak.com>`. Its domain must be verified in Resend. It also defines "our domain": Settings only accepts sender addresses on it, and the webhook only stores mail addressed to it or its subdomains. The admin login code uses it too, so changing it changes that sender. |
 | `RESEND_WEBHOOK_SECRET` | The `whsec_…` signing secret of the Resend webhook (Step 3). Unset → `/api/webhooks/resend` returns 404. |
 | `CRON_SECRET` | The bearer token the scheduler sends to `/api/cron/email` (and the existing `/api/cron/purge-complaints`). Unset → both routes return 404. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
+| `RESEND_INBOUND_ENABLED` | Leave **unset** while the inbox is off. `true` turns receiving on (Feature D); do that only together with Step 3.3 and Step 4, and after bounding the received-body download in `lib/email/resend.ts`, which currently reads Resend's whole JSON response. |
 
 None of these go in the database, the repo or the admin UI. Settings only shows whether each one is set. The site URL used in email links is fixed in `lib/site-url.ts` (`https://janatardipak.com`).
 
 ## Step 3: Resend configuration (needs Resend access)
 
 1. **Domain.** Resend → Domains → `janatardipak.com` must show **Verified**. DNS already has Resend's sending records (`send.janatardipak.com` and `resend._domainkey`), but the verification status could not be checked from here. Leave those records as they are.
-2. **Webhook.** Resend → Webhooks → add the endpoint `https://janatardipak.com/api/webhooks/resend` with these events: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed`, `email.suppressed`, `email.received`. Copy its signing secret into `RESEND_WEBHOOK_SECRET` on Render. The Free plan allows one webhook endpoint, and this single endpoint handles all of these events.
-3. **Receiving (only for the inbox).** Turn on receiving for the domain. Resend then shows an MX record to add (Step 4). Mail is only accepted for the domain once that record exists.
+2. **Webhook.** Resend → Webhooks → add the endpoint `https://janatardipak.com/api/webhooks/resend` with these events: `email.sent`, `email.delivered`, `email.delivery_delayed`, `email.bounced`, `email.complained`, `email.failed`, `email.suppressed`. Add `email.received` only when the inbox is turned on. Copy its signing secret into `RESEND_WEBHOOK_SECRET` on Render. The Free plan allows one webhook endpoint, and this single endpoint handles all of these events.
+3. **Receiving (only for the inbox; off for now).** Turn on receiving for the domain. Resend then shows an MX record to add (Step 4). Mail is only accepted for the domain once that record exists, and the site only stores it with `RESEND_INBOUND_ENABLED=true`.
 4. **Plan limits.** The Free plan allows 3,000 emails a month and 100 a day, and **received mail counts toward the same quota**. A complaint with an email address uses 2 sends. If the daily cap is hit, messages wait and are retried after midnight UTC (the retry window is 23 hours). Pro is $20/month if volume grows. Resend's separate paid "Inboxes" product is not used.
 
 ## Step 4: DNS records (at Hostinger, not applied)
@@ -137,7 +148,7 @@ In `/admin/emails/settings` (any dashboard administrator):
 
 Never use a real citizen's address for a test.
 
-1. **Locally, with no network:** run `npm test`. That's 89 tests; Resend and Supabase are mocked.
+1. **Locally, with no network:** run `npm test`. That's 98 tests; Resend and Supabase are mocked.
 2. **After deploying:**
    1. Go to Settings → **Send a test email to myself**. It only goes to the signed-in administrator's own login address (limit 5 an hour).
 3. **To test a citizen receipt:**
@@ -146,9 +157,9 @@ Never use a real citizen's address for a test.
    3. Check the inbox, then the receipt row in Settings → System email history.
    4. Restore the setting.
    5. Mark the test complaint resolved or delete it.
-   6. Receipts are capped at 3 per address per day and 20 per hour site-wide.
+   6. Receipts are capped at 3 per address per day and 20 per hour site-wide, and the form at 5 complaints an hour per visitor (see Anti-abuse above).
 4. **To check bounce handling without a real recipient:** send a New message to Resend's test addresses, `delivered@resend.dev`, `bounced@resend.dev` or `complained@resend.dev`. With the webhook connected, the row's status should change to delivered, bounced or complained.
-5. **To test the inbox,** once receiving is live: send a message from your own mailbox to an `@janatardipak.com` address.
+5. **To test the inbox,** once receiving is turned on: send a message from your own mailbox to an `@janatardipak.com` address.
 
 ## Inspecting delivery failures
 
@@ -202,6 +213,8 @@ Never use a real citizen's address for a test.
 ## Known gaps
 
 - After signing in from an email's admin link, login lands on `/admin`, not the linked complaint.
+- Receiving (the Inbox) is off; see Feature D before turning it on.
+- An email skipped by an anti-abuse cap isn't sent later by itself; Retry in Settings → System email history sends it by hand.
 - Inbound attachments are metadata only.
 - Reminders list at most 50 complaints (the count shows the total).
 - Trashed shows the 50 most recently trashed items (the count shows the total).

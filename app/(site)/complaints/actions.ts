@@ -22,6 +22,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { createServiceClient } from "@/utils/supabase/admin";
 import type { TablesInsert } from "@/types/database.types";
+import { clientIpFrom } from "@/lib/client-ip";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { headComplaintObject, R2_COMPLAINT_KEY_PREFIX } from "@/lib/r2-complaints";
 import { isValidEmail, MAX_EMAIL_LENGTH, normalizeEmail } from "@/lib/email/address";
@@ -76,13 +77,6 @@ const complaintSchema = z.object({
   { path: ["media"], message: "One of the attachments didn't come from this form. Please re-add it." }
 );
 
-async function getClientIp(): Promise<string> {
-  const hdrs = await headers();
-  const forwardedFor = hdrs.get("x-forwarded-for");
-  if (forwardedFor) return forwardedFor.split(",")[0].trim();
-  return hdrs.get("x-real-ip") ?? "unknown";
-}
-
 export type SubmitComplaintInput = {
   description: string;
   contact_phone: string;
@@ -97,7 +91,7 @@ export type SubmitComplaintResult =
   | { success: false; error: string; fieldErrors?: Record<string, string> };
 
 export async function submitComplaint(input: SubmitComplaintInput): Promise<SubmitComplaintResult> {
-  const ip = await getClientIp();
+  const ip = clientIpFrom(await headers());
   if (!checkRateLimit(`complaint:${ip}`, RATE_LIMIT_MAX_SUBMISSIONS, RATE_LIMIT_WINDOW_MS)) {
     return {
       success: false,

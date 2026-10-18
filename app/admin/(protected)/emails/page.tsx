@@ -78,7 +78,21 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
 
       {isMissingTable(error) && <MigrationNotice />}
 
-      {!provider.webhookConfigured && !isMissingTable(error) && (
+      {!provider.inboundEnabled && !isMissingTable(error) && (
+        <Notice title="Receiving is turned off">
+          <p>
+            Mail sent to @{domain} isn&apos;t collected here, so this inbox stays empty. Sending (receipts, notifications,
+            reminders and New Message) works as normal.
+          </p>
+          <p>
+            Turning it on needs receiving set up for the domain in Resend (MX record), the webhook subscribed to{" "}
+            <code className="text-xs">email.received</code>, and <code className="text-xs">RESEND_INBOUND_ENABLED=true</code>{" "}
+            on Render; see <code className="text-xs">docs/email-system.md</code>.
+          </p>
+        </Notice>
+      )}
+
+      {provider.inboundEnabled && !provider.webhookConfigured && !isMissingTable(error) && (
         <Notice tone="warn" title="Receiving isn't connected yet">
           <p>
             Mail sent to @{domain} does not reach this inbox until three things are set up: receiving is turned on for

@@ -8,11 +8,13 @@
 // ever hands back a URL.
 //
 // Rate-limited the same honest, single-instance way as submitComplaint
-// (see lib/rate-limit.ts) — a separate bucket/key from the submission
-// limiter since one complaint can legitimately request several of these
-// (up to MAX_IMAGES photos + one video).
+// (see lib/rate-limit.ts), per visitor address (lib/client-ip.ts) — a
+// separate bucket/key from the submission limiter since one complaint
+// can legitimately request several of these (up to MAX_IMAGES photos +
+// one video).
 
 import { NextResponse } from "next/server";
+import { clientIpFrom } from "@/lib/client-ip";
 import { createComplaintUploadUrl } from "@/lib/r2-complaints";
 import { checkRateLimit } from "@/lib/rate-limit";
 
@@ -31,14 +33,8 @@ function sanitizeFilename(name: string) {
   return name.replace(/[^a-zA-Z0-9.-]/g, "_").toLowerCase();
 }
 
-async function getClientIp(request: Request): Promise<string> {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) return forwardedFor.split(",")[0].trim();
-  return request.headers.get("x-real-ip") ?? "unknown";
-}
-
 export async function POST(request: Request) {
-  const ip = await getClientIp(request);
+  const ip = clientIpFrom(request.headers);
   if (!checkRateLimit(`complaint-upload:${ip}`, RATE_LIMIT_MAX, RATE_LIMIT_WINDOW_MS)) {
     return NextResponse.json({ error: "Too many upload requests. Please try again later." }, { status: 429 });
   }

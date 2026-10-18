@@ -13,6 +13,13 @@
 //   RESEND_WEBHOOK_SECRET  signing secret (whsec_…) of the Resend webhook
 //                          pointed at /api/webhooks/resend
 //   CRON_SECRET            bearer token for /api/cron/email
+//   RESEND_INBOUND_ENABLED "true" turns receiving on (the Inbox). Unset,
+//                          the webhook acknowledges `email.received`
+//                          events and drops them: nothing is stored or
+//                          fetched from Resend. The office doesn't
+//                          receive mail at the domain yet; before turning
+//                          this on, bound the received-body download in
+//                          lib/email/resend.ts (it reads the whole JSON).
 // The UI only ever learns whether each one is set.
 
 import { domainOf, parseMailbox } from "@/lib/email/address";
@@ -43,12 +50,17 @@ export function getCronSecret(): string | null {
   return env("CRON_SECRET");
 }
 
+export function isInboundEnabled(): boolean {
+  return env("RESEND_INBOUND_ENABLED") === "true";
+}
+
 export type ProviderStatus = {
   apiKeyConfigured: boolean;
   defaultSender: string | null;
   verifiedDomain: string | null;
   webhookConfigured: boolean;
   cronConfigured: boolean;
+  inboundEnabled: boolean;
 };
 
 export function getProviderStatus(): ProviderStatus {
@@ -59,5 +71,6 @@ export function getProviderStatus(): ProviderStatus {
     verifiedDomain: sender ? domainOf(sender.address) : null,
     webhookConfigured: Boolean(getWebhookSecret()),
     cronConfigured: Boolean(getCronSecret()),
+    inboundEnabled: isInboundEnabled(),
   };
 }

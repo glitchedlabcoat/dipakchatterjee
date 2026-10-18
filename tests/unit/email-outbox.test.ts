@@ -8,7 +8,8 @@ process.env.RESEND_FROM_EMAIL = "Dipak Chatterjee <office@janatardipak.com>";
 
 const { MemoryStore } = await import("@/tests/unit/helpers/memory-store");
 const { FakeSender, permanentError, transientError } = await import("@/tests/unit/helpers/fake-sender");
-const { queueComplaintEmails, RECEIPTS_PER_ADDRESS_PER_DAY } = await import("@/lib/email/complaint-emails");
+const { queueComplaintEmails, RECEIPTS_PER_ADDRESS_PER_DAY, OFFICE_NOTIFICATIONS_PER_HOUR, COMPLAINT_EMAILS_PER_DAY } =
+  await import("@/lib/email/complaint-emails");
 const { deliverMessage, deliverMessages, processDueMessages, requeueMessage, MAX_ATTEMPTS, STALE_CLAIM_MS } = await import(
   "@/lib/email/outbox"
 );
@@ -133,6 +134,59 @@ test("the receipt cap follows the injected clock, whatever today's date is", asy
     const q = await queueComplaintEmails(store, { complaintId: later.id, contactEmail: "target@example.com" }, store.clock());
     assert.equal(q.receiptQueued, true, `${start}: cap resets after 24 h`);
   }
+});
+
+test("office notifications are capped per hour; the complaint is still saved and the cap logged", async () => {
+  const { store, advance } = setup();
+  for (let i = 0; i < OFFICE_NOTIFICATIONS_PER_HOUR + 2; i++) {
+    const c = store.addComplaint();
+    await queueComplaintEmails(store, { complaintId: c.id, contactEmail: null }, store.clock());
+    advance(1_000);
+  }
+  const notices = store.messageList().filter((m) => m.kind === "office_notification");
+  assert.equal(notices.filter((m) => m.status === "pending").length, OFFICE_NOTIFICATIONS_PER_HOUR);
+  const skipped = notices.filter((m) => m.status === "skipped");
+  assert.equal(skipped.length, 2);
+  assert.match(skipped[0].last_error ?? "", /office notifications already went out in the last hour/);
+  assert.ok(skipped.every((m) => m.complaint_id), "each skipped notification still points at its complaint");
+
+  advance(3_600_000);
+  const later = store.addComplaint();
+  const q = await queueComplaintEmails(store, { complaintId: later.id, contactEmail: null }, store.clock());
+  assert.equal(q.ids.length, 1, "notifications flow again an hour later");
+});
+
+test("receipts and notifications together are capped per day, leaving the rest of the quota for the office", async () => {
+  const { store, advance } = setup();
+  let queued = 0;
+  // 3 complaints an hour, each with a receipt: well under both hourly caps.
+  for (let i = 0; i < 40; i++) {
+    const c = store.addComplaint();
+    const q = await queueComplaintEmails(store, { complaintId: c.id, contactEmail: `c${i}@example.com` }, store.clock());
+    queued += q.ids.length;
+    advance(20 * 60_000);
+  }
+  assert.equal(queued, COMPLAINT_EMAILS_PER_DAY);
+  const skipped = store.messageList().filter((m) => m.status === "skipped");
+  assert.equal(skipped.length, 80 - COMPLAINT_EMAILS_PER_DAY);
+  assert.ok(skipped.every((m) => /complaint emails .* last 24 hours/.test(m.last_error ?? "")));
+
+  advance(24 * 3_600_000);
+  const later = store.addComplaint();
+  const q = await queueComplaintEmails(store, { complaintId: later.id, contactEmail: "later@example.com" }, store.clock());
+  assert.equal(q.ids.length, 2, "the budget resets as the 24-hour window moves on");
+});
+
+test("emails logged as skipped (e.g. no recipient set yet) don't use up the caps", async () => {
+  const { store } = setup({ officeNotificationEmail: null });
+  for (let i = 0; i < COMPLAINT_EMAILS_PER_DAY + 5; i++) {
+    const c = store.addComplaint();
+    await queueComplaintEmails(store, { complaintId: c.id, contactEmail: null }, store.clock());
+  }
+  assert.ok(store.messageList().every((m) => m.status === "skipped"));
+  const c = store.addComplaint();
+  const q = await queueComplaintEmails(store, { complaintId: c.id, contactEmail: "a@example.com" }, store.clock());
+  assert.equal(q.receiptQueued, true);
 });
 
 test("queueing never throws, even when the database fails", async () => {

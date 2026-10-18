@@ -112,11 +112,11 @@ export default async function EmailSettingsPage({ searchParams }: { searchParams
           />
           <StatusRow
             ok={provider.webhookConfigured}
-            label="Delivery reports & inbox"
+            label={provider.inboundEnabled ? "Delivery reports & inbox" : "Delivery reports"}
             detail={
               provider.webhookConfigured
-                ? "Resend webhook secret is set"
-                : "RESEND_WEBHOOK_SECRET is not set, so delivery confirmations and received mail don't arrive"
+                ? `Resend webhook secret is set${provider.inboundEnabled ? "" : " (receiving is turned off)"}`
+                : `RESEND_WEBHOOK_SECRET is not set, so delivery confirmations${provider.inboundEnabled ? " and received mail" : ""} don't arrive`
             }
           />
         </ul>

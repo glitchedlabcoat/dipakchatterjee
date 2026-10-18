@@ -104,7 +104,12 @@ export interface EmailStore {
    */
   setMessageTrash(id: string, trash: TrashState): Promise<EmailMessageRow | null>;
   listDueMessageIds(nowIso: string, staleClaimBeforeIso: string, limit: number): Promise<string[]>;
-  /** Counts by queued_at (when a row entered the outbox), so drafts never count. */
+  /**
+   * Counts by queued_at (when a row entered the outbox), so drafts never
+   * count, and leaves out skipped rows: they were never sent, so they
+   * mustn't use up a cap (e.g. notifications logged while no recipient
+   * was set).
+   */
   countMessagesSince(kinds: EmailKind[], sinceIso: string, toAddress?: string): Promise<number>;
   findMessageByProviderId(providerId: string): Promise<EmailMessageRow | null>;
 
@@ -270,6 +275,7 @@ export function createSupabaseEmailStore(db: ServiceClient): EmailStore {
         .from("email_messages")
         .select("id", { count: "exact", head: true })
         .in("kind", kinds)
+        .neq("status", "skipped")
         .gte("queued_at", sinceIso);
       if (toAddress) query = query.contains("to_addresses", [toAddress]);
       const { count, error } = await query;

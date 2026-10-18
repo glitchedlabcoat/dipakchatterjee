@@ -54,7 +54,12 @@ const fakeDb = {
   },
 };
 
-mockModule("next/headers", { headers: async () => new Headers({ "x-forwarded-for": `10.0.0.${ipCounter}` }) });
+// Each test gets its own visitor address, so the module-level rate limiter
+// doesn't carry over between tests; requestHeaders overrides it.
+let requestHeaders: (() => Record<string, string>) | null = null;
+mockModule("next/headers", {
+  headers: async () => new Headers(requestHeaders ? requestHeaders() : { "cf-connecting-ip": `10.0.0.${ipCounter}` }),
+});
 mockModule("next/cache", { revalidatePath: () => undefined });
 mockModule("next/server", { after: (fn: () => unknown) => void afterQueue.push(fn) });
 mockModule("@/utils/supabase/admin", { createServiceClient: () => fakeDb });
@@ -144,6 +149,25 @@ test("if the live table lacks contact_email, the complaint is still saved (witho
   assert.equal(res.success && res.receiptQueued, false);
   assert.equal(inserted.length, 1);
   assert.equal("contact_email" in inserted[0], false);
+});
+
+test("the rate limit follows CF-Connecting-IP; a forged X-Forwarded-For can't get round it", async () => {
+  fresh();
+  const ip = `10.9.0.${ipCounter}`;
+  let n = 0;
+  // What Render passes on for a visitor who forges X-Forwarded-For (probed
+  // 2026-10-18): their value first, then the real chain.
+  requestHeaders = () => ({ "cf-connecting-ip": ip, "x-forwarded-for": `203.0.113.${++n},${ip}, 172.71.202.162, 10.26.96.152` });
+  try {
+    const results = [];
+    for (let i = 0; i < 6; i++) results.push(await submitComplaint(form()));
+    assert.equal(results.filter((r) => r.success).length, 5);
+    const last = results[5];
+    assert.ok(!last.success && /Too many complaints/.test(last.error));
+    assert.equal(inserted.length, 5);
+  } finally {
+    requestHeaders = null;
+  }
 });
 
 test("existing rules are unchanged: consent still required", async () => {
