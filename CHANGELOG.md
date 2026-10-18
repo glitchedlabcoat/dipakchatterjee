@@ -5,6 +5,30 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.18.1] - 2026-10-18
+
+Safe-baseline release. Production was still serving a build from before v1.18.0 (no `/privacy`, no complaint consent checkbox, no HSTS): the three commits pushed on 2026-09-28 never deployed. This release is v1.18.0 as committed, plus the security updates and the CSP fix below. The uncommitted email system (v1.19.0 draft) is deliberately not part of it.
+
+### Security
+
+- Next.js 16.3.4 → 16.4.2. 16.3.4 is affected by GHSA-vcvr-r3jv-pc5j (critical, `next/og` `ImageResponse` remote code execution, fixed in 16.3.6), GHSA-cjq9-62q9-8jv4 (high, Image Optimization SSRF, fixed in 16.3.8) and four moderate and one low advisories fixed in 16.3.8. Neither the critical nor the high one looks reachable here (`app/icon.tsx` renders constant content; `images.remotePatterns` lists only the Supabase project and the R2 public host), but both are patched rather than argued about. The lockfile change is limited to `next`, `@next/env`, `@next/swc-*`, `sharp` and `@img/*`.
+- `sharp` 0.35.4 → 0.35.5 (GHSA-wq5f-xc86-pv6w, librsvg), via Next 16.4.2's optional dependency range.
+- `source-map-js` 1.2.1 → 1.2.2 (GHSA-68fv-2mgg-jv7q, event-loop DoS from a crafted indexed source map). Only PostCSS/Tailwind use it, on the site's own CSS at build time.
+- `npm audit --omit=dev`: 0 vulnerabilities.
+
+### Fixed
+
+- Content-Security-Policy blocked every browser request to a presigned R2 URL. The AWS SDK signs them virtual-hosted style (`<bucket>.<account>.r2.cloudflarestorage.com`), but `proxy.ts` only allowed the bare `<account>.r2.cloudflarestorage.com` host, and CSP host matching is exact. Blocked as a result: a citizen's attachment upload on `/complaints` (shown as "Failed to fetch"), the admin's direct media upload (which silently fell back to the server-proxied upload), and admin previews of complaint attachments. `proxy.ts` now also allows the two bucket hosts, built from `R2_BUCKET_NAME` and `R2_COMPLAINT_BUCKET_NAME`, in `img-src`, `media-src` and `connect-src`. Verified locally in headless Edge: the upload request is no longer blocked. Complaint uploads additionally need a CORS rule on the private complaint bucket, which has none yet (the media bucket's CORS already allows the site); that is a Cloudflare dashboard setting, not code.
+
+### Files Changed
+
+- `package.json`, `package-lock.json`
+- `proxy.ts`
+
+### Today's Checkpoint (2026-10-18)
+
+Open ledger for anything else shipped later today — appended here rather than opening a new version entry.
+
 ## [v1.18.0] - 2026-09-28
 
 ### Added

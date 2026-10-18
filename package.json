@@ -23,7 +23,7 @@
     "browser-image-compression": "^2.0.2",
     "lucide-react": "^1.44.0",
     "mp4-muxer": "^5.2.2",
-    "next": "^16.3.4",
+    "next": "^16.4.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.87.0",

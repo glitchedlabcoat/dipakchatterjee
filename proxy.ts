@@ -76,22 +76,32 @@ function supabaseHost(): string {
 const SUPABASE_HOST = supabaseHost();
 
 // Cloudflare R2 — every admin media URL (and, once R2_COMPLAINT_BUCKET_NAME
-// is configured, complaint attachments) resolves to one of these two
-// hosts. R2_PUBLIC_DOMAIN serves the public admin-media bucket directly
-// (see lib/r2.ts); the raw r2.cloudflarestorage.com endpoint is what
-// every *presigned* URL points at instead (see lib/r2-complaints.ts) —
-// admin's signed GET for a private complaint attachment, and the
-// browser's own direct signed PUT when uploading one. Both need to be
-// allowed here or the browser blocks the request outright regardless of
-// the URL being correctly signed; CSP is enforced independently of (and
-// before) the actual HTTP response.
+// is configured, complaint attachments) resolves to one of these hosts.
+// R2_PUBLIC_DOMAIN serves the public admin-media bucket directly (see
+// lib/r2.ts); every *presigned* URL points at the S3 endpoint instead
+// (see lib/r2-complaints.ts) — admin's signed GET for a private complaint
+// attachment, the browser's own direct signed PUT when uploading one, and
+// the admin's direct media upload. The AWS SDK signs those virtual-hosted
+// style, i.e. on the bucket's own subdomain
+// (<bucket>.<account>.r2.cloudflarestorage.com), and CSP host matching is
+// exact, so each bucket host is listed alongside the bare endpoint (which
+// path-style URLs, used for non-DNS-safe bucket names, still need). All of
+// them need to be allowed here or the browser blocks the request outright
+// regardless of the URL being correctly signed; CSP is enforced
+// independently of (and before) the actual HTTP response.
 const R2_PUBLIC_HOST = process.env.R2_PUBLIC_DOMAIN ?? "";
 const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
 const R2_ENDPOINT_HOST = R2_ACCOUNT_ID ? `${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : "";
-const R2_IMG_SOURCES = [R2_PUBLIC_HOST, R2_ENDPOINT_HOST]
+const R2_BUCKET_HOSTS = R2_ENDPOINT_HOST
+  ? [process.env.R2_BUCKET_NAME, process.env.R2_COMPLAINT_BUCKET_NAME]
+      .filter(Boolean)
+      .map((bucket) => `${bucket}.${R2_ENDPOINT_HOST}`)
+  : [];
+const R2_SIGNED_SOURCES = [R2_ENDPOINT_HOST, ...R2_BUCKET_HOSTS]
   .filter(Boolean)
   .map((host) => `https://${host}`)
   .join(" ");
+const R2_IMG_SOURCES = [R2_PUBLIC_HOST ? `https://${R2_PUBLIC_HOST}` : "", R2_SIGNED_SOURCES].filter(Boolean).join(" ");
 
 function buildCsp(nonce: string): string {
   const isDev = process.env.NODE_ENV === "development";
@@ -119,7 +129,7 @@ function buildCsp(nonce: string): string {
     style-src 'self' 'unsafe-inline';
     img-src 'self' blob: data: https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
     media-src 'self' https://${SUPABASE_HOST}${R2_IMG_SOURCES ? ` ${R2_IMG_SOURCES}` : ""};
-    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST} https://www.facebook.com${R2_ENDPOINT_HOST ? ` https://${R2_ENDPOINT_HOST}` : ""};
+    connect-src 'self' https://${SUPABASE_HOST} wss://${SUPABASE_HOST} https://www.facebook.com${R2_SIGNED_SOURCES ? ` ${R2_SIGNED_SOURCES}` : ""};
     font-src 'self';
     object-src 'none';
     base-uri 'self';
