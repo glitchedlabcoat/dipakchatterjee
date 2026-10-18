@@ -24,6 +24,9 @@ export type NavLink = Tables<"nav_links">;
 export type DashboardActivityLog = Tables<"dashboard_activity_logs">;
 export type CacheMetric = Tables<"cache_metrics">;
 export type IntegrationSettings = Tables<"integration_settings">;
+export type EmailSettingsRow = Tables<"email_settings">;
+export type EmailMessageRow = Tables<"email_messages">;
+export type EmailInboundRow = Tables<"email_inbound">;
 
 export type FeatureType = Feature["type"];
 export type MediaKind = FeatureMedia["kind"];

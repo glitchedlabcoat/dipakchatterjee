@@ -16,6 +16,19 @@ export function getComplaintStatus(
   return "active";
 }
 
+/**
+ * "Unresolved" for reminder emails: not marked resolved (the admin list's
+ * Resolved/Unresolved toggle) and not expired (an expired complaint is
+ * purged, never shown). The Supabase query in lib/email/store.ts's
+ * listUnresolvedComplaints() applies these same three conditions.
+ */
+export function isUnresolvedComplaint(
+  complaint: { status: string; is_expired: boolean; expires_at: string },
+  now: number = Date.now()
+): boolean {
+  return complaint.status !== "resolved" && !complaint.is_expired && new Date(complaint.expires_at).getTime() > now;
+}
+
 export function formatTimeRemaining(expiresAt: string, now: number = Date.now()): string {
   const diffMs = new Date(expiresAt).getTime() - now;
 

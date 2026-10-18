@@ -6,6 +6,12 @@
 //   - complaint fields/retention -> app/(site)/complaints/actions.ts,
 //     lib/complaints-cleanup.ts (retention days come live from
 //     site_settings.complaint_expiration_days, same default of 7)
+//   - optional complaint email + receipt, Resend as processor, email log
+//     deleted with the complaint -> lib/email/complaint-emails.ts,
+//     email_messages ON DELETE CASCADE (20261017000000_email_system.sql)
+//   - email exchanged with the office (Admin > Emails: received mail,
+//     messages the office sends) kept up to 365 days -> lib/email/dispatch.ts
+//     (CORRESPONDENCE_RETENTION_DAYS, INBOUND_RETENTION_DAYS)
 //   - IP used only for the in-memory rate limit -> lib/rate-limit.ts
 //   - embeds load automatically, no consent step (the click-to-load
 //     gate was removed 2026-09-28) -> components/posts/PostEmbed.tsx
@@ -32,7 +38,7 @@ export const metadata: Metadata = {
 
 const DEFAULT_CONTACT_EMAIL = "dipak.chatterjee304@gmail.com";
 const DEFAULT_RETENTION_DAYS = 7;
-const LAST_UPDATED = "28 September 2026";
+const LAST_UPDATED = "18 October 2026";
 
 function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
@@ -93,6 +99,7 @@ export default async function PrivacyPage() {
             <ul className="list-disc pl-5 space-y-1">
               <li>the description you write (required);</li>
               <li>your phone number, if you choose to give it;</li>
+              <li>your email address, if you choose to give it;</li>
               <li>any photos or video you choose to attach.</li>
             </ul>
             <p>
@@ -100,13 +107,26 @@ export default async function PrivacyPage() {
               authorised staff of the office and is never sold or used for marketing.
             </p>
             <p>
+              If you give an email address, we send one automatic confirmation to it with your
+              reference number and the time of submission (never the content of your complaint), and
+              the office may use it to reply to you. The confirmation is sent through our email
+              provider, Resend.
+            </p>
+            <p>
               Your IP address is checked briefly in server memory to block spam (a limit on how many
               complaints one connection can send per hour). It is not saved with your complaint.
             </p>
             <p>
               Complaints and their attachments are <strong>permanently deleted {retentionDays} days</strong>{" "}
-              after submission. They are stored with our service providers: Supabase (database),
-              Cloudflare R2 (attachments) and Render (hosting).
+              after submission, together with the record of any confirmation email. They are stored
+              with our service providers: Supabase (database), Cloudflare R2 (attachments), Render
+              (hosting) and Resend (email delivery, which keeps its own delivery records for up to 30
+              days).
+            </p>
+            <p>
+              If you exchange emails with the office (for example, it writes to you, or you write to an
+              @janatardipak.com address), those emails are kept separately from your complaint, for up to
+              one year, and are visible only to authorised staff.
             </p>
           </Section>
 

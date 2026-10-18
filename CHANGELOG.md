@@ -5,6 +5,65 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.19.0] - 2026-10-18
+
+Email system and the admin **Emails** section, built on the existing stack (Render, Supabase, Resend REST API, no SDK) on top of v1.18.1. Not live until the database migration is applied and the Resend settings are in place (see `docs/email-system.md`); without the migration the site works as before and the Emails pages say so.
+
+### Added
+
+- **Emails section** (`/admin/emails`, sidebar "Emails") with six sections:
+  - **Inbox:** mail received through Resend, with search, an unread filter, and a safe message view (plain text by default; sanitised HTML only in a sandboxed frame without scripts; SPF/DKIM/DMARC result; attachments listed, never downloaded). Reply, mark unread, Move to Trashed.
+  - **Drafts:** Save draft stores the message in the database, so it survives reloads, other browsers and redeploys; reopening resumes it in New Message. A save from an older tab is refused instead of overwriting newer text.
+  - **Outbox:** an administrator's messages, replies and test emails that Resend hasn't accepted yet (queued, sending, failed, not sent), with the error, attempts, the next try, and Retry.
+  - **Sent:** messages Resend accepted, with the latest delivery report from the webhook (Accepted by Resend → Delivered, Delayed, Bounced, Marked as spam, Suppressed or Failed).
+  - **Trashed:** soft delete for received mail, drafts and sent or failed messages; Restore puts each back where it came from. Nothing is deleted, and a message still queued or sending can't be trashed.
+  - **New Message:** To (up to 10, validated and de-duplicated), Subject (200), plain-text Message (20,000); Send, Save draft, Discard.
+  - Settings (sender, reply-to, notification recipient, toggles, reminder schedule, provider and scheduler status, test email to yourself) is a secondary link; its history now lists system emails only.
+- **Citizen receipt (optional):** an optional Email field on `/complaints`; the citizen gets the reference number, submission time and office contact, never the complaint text, phone number, attachments or a link. Capped at 3 per address per day and 20 per hour site-wide.
+- **New-complaint notification** to the configured recipient, with a link to `/admin/complaints?complaint=<id>` (still behind the dashboard login).
+- **Reminders** about unresolved complaints (daily, weekly, monthly, every N days or months; any timezone, default Asia/Kolkata), at most one per occurrence, never a backlog.
+- **Outbox and delivery log** (`email_messages`): every email is written to the database before it is sent, with `Idempotency-Key` = its unique dedupe key; compare-and-set claims; byte-identical retries at 1 min, 5 min, 30 min, 2 h and 6 h within 23 hours; receipts and notifications sent in `after()` so a complaint never waits on, or fails because of, email.
+- **`/api/cron/email`** (`Authorization: Bearer <CRON_SECRET>`, 404 while unset): reminder, due sends and retries, pending inbound bodies, retention, heartbeat.
+- **`/api/webhooks/resend`:** Svix signature over the raw body (5-minute tolerance, constant-time), 256 KB limit, 404 while `RESEND_WEBHOOK_SECRET` is unset; delivery events never move a status backwards; `email.received` stored once per Resend id, only for the site's own domain, then its body fetched with bounded sizes.
+- `supabase/migrations/20261017000000_email_system.sql` (additive, idempotent, **not applied**): `email_settings`, `email_messages` (incl. `draft` status, `queued_at`, `trashed_at`/`trashed_by`), `email_inbound` (incl. `trashed_at`/`trashed_by`), select-only RLS via `is_admin()`, no write policies. Re-runnable, including over the 2026-10-17 draft of the file. `supabase/snippets/email-scheduler-pg-cron.sql`: an optional free pg_cron scheduler (not applied).
+- `docs/email-system.md` (runbook) and `lib/email/mailbox.ts` (the section rules shared by pages, actions and tests).
+
+### Security
+
+- **Access:** every dashboard administrator (any profile, role ADMIN or USER) has full access to the Emails section; every server action checks `requireAdmin()` itself; the database's read policies use the same rule; nobody without a profile can read or do anything. No Emails code uses the owner-only guard.
+- **Exactly once:** a composition is one email however often Send is pressed, by however many administrators: unique dedupe key = Resend idempotency key, and sending a draft is a compare-and-set from `draft` to `pending`. A trashed message is never sent, even by a stale Retry.
+- **No relay:** the sender is fixed server-side to the verified domain; 20 sends an hour and 50 a day across all administrators, counted when a message enters the Outbox (drafts can't be stockpiled past the limit); test emails only to the signed-in administrator's own address.
+- Received HTML is sanitised (scripts, forms, styles, event handlers, CSS `url()`, remote images and `javascript:` links removed) and shown without scripts or same-origin access. Message bodies the office sent are shown as escaped plain text.
+- Secrets live only in Render environment variables; the UI shows only whether each is set. Logs and activity-log entries carry ids, statuses and counts, not addresses or content.
+
+### Changed
+
+- `/privacy` (last updated 18 October 2026) describes the email field, the receipt, Resend as a processor, and that email exchanged with the office is kept up to a year. **Needs Mr. Dipak's approval before go-live.**
+- Complaint form consent now says "contact details" instead of "phone number".
+- Admin complaint detail shows the citizen's email as a mailto link; `/admin/complaints?complaint=<uuid>` opens that complaint, or says it's no longer available.
+- Retention: system emails 90 days; an administrator's sent messages and replies 365 days, like received mail; drafts never; trashing doesn't change it.
+- `.env.example`: Email (Resend) section with `RESEND_WEBHOOK_SECRET`; `CRON_SECRET` also drives `/api/cron/email`.
+- New dependency `sanitize-html` 2.18.0 (pinned) and `@types/sanitize-html`; `npm audit --omit=dev`: 0 vulnerabilities.
+
+### Fixed
+
+- A unit test (receipt cap) depended on the real date and failed after 2026-10-18 06:00 UTC: the code under test measured its window from the real clock while the test store used a fixed one. Every call now passes the test's injected clock, and a regression test runs the cap at dates in 2020 and 2035.
+
+### Tests
+
+- `npm test`: 89 `node:test` tests (68 earlier, updated where access rules changed on purpose, plus 21 for drafts, concurrency, exactly-once sending, Outbox failure and retry, Trashed, retention and authorization of every action).
+- The migration on a disposable Postgres (PGlite): 14/14. End-to-end against the production build with mock Supabase and Resend: 18/18. Headless Edge: 4/4 (every section, desktop and phone, no CSP violations; draft persistence across a reload; sandboxed received HTML; Trash and Restore). The 2026-09-28 smoke suite still passes (11, 0 failed).
+
+### Files Changed
+
+- `lib/email/` (new, 16 files incl. `mailbox.ts`), `app/api/cron/email/route.ts`, `app/api/webhooks/resend/route.ts`
+- `app/admin/(protected)/emails/` (new): `actions.ts`, `shared.tsx`, `EmailsHeader.tsx`, `MessageList.tsx`, `TrashButton.tsx`, `page.tsx`, `[id]/`, `drafts/`, `outbox/`, `sent/`, `trash/`, `message/[id]/`, `new/`, `settings/`
+- `app/(site)/complaints/actions.ts`, `components/complaints/ComplaintForm.tsx`, `app/(site)/privacy/page.tsx`
+- `app/admin/(protected)/complaints/page.tsx`, `ComplaintList.tsx`, `ComplaintDetailModal.tsx`, `components/admin/AdminSidebar.tsx`, `lib/complaint-status.ts`
+- `types/database.types.ts`, `types/domain.ts`
+- `supabase/migrations/20261017000000_email_system.sql`, `supabase/snippets/email-scheduler-pg-cron.sql`
+- `tests/unit/` (new), `docs/email-system.md` (new), `.env.example`, `package.json`, `package-lock.json`, `lib/changelog-data.ts`, `CHANGELOG.md`, `CHANGELOG.txt`
+
 ## [v1.18.1] - 2026-10-18
 
 Safe-baseline release. Production was still serving a build from before v1.18.0 (no `/privacy`, no complaint consent checkbox, no HSTS): the three commits pushed on 2026-09-28 never deployed. This release is v1.18.0 as committed, plus the security updates and the CSP fix below. The uncommitted email system (v1.19.0 draft) is deliberately not part of it.

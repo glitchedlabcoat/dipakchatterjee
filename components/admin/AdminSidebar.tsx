@@ -20,6 +20,7 @@ import {
   Image as ImageIcon,
   LayoutDashboard,
   Layers,
+  Mail,
   MessageSquareWarning,
   Rows3,
   Rss,
@@ -47,6 +48,7 @@ const NAV_LINKS_BEFORE_SETTINGS = [
   { href: "/admin/arrangement", label: "Arrangement", icon: Rows3 },
   { href: "/admin/posts", label: "Posts", icon: Rss },
   { href: "/admin/complaints", label: "Complaints", icon: MessageSquareWarning },
+  { href: "/admin/emails", label: "Emails", icon: Mail },
   { href: "/admin/usage", label: "Usage Metrics", icon: Activity },
 ];
 

@@ -12,7 +12,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Clock, Copy, FileVideo, Phone, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Clock, Copy, FileVideo, Mail, Phone, X } from "lucide-react";
 import { formatTimeRemaining, getComplaintStatus } from "@/lib/complaint-status";
 import { formatReferenceNumber } from "@/lib/reference";
 import type { ComplaintMediaWithUrl } from "./ComplaintList";
@@ -156,6 +156,16 @@ export default function ComplaintDetailModal({
                 </a>
               ) : (
                 <span className="text-ink-400 italic">Not provided</span>
+              )}
+            </p>
+            <p className="flex items-center gap-2 min-w-0">
+              <Mail className="w-4 h-4 text-ink-400 shrink-0" />
+              {complaint.contact_email ? (
+                <a href={`mailto:${complaint.contact_email}`} className="hover:text-saffron-600 font-medium break-all">
+                  {complaint.contact_email}
+                </a>
+              ) : (
+                <span className="text-ink-400 italic">No email</span>
               )}
             </p>
             <p className="flex items-center gap-2">

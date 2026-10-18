@@ -13,7 +13,15 @@ export const metadata: Metadata = {
 
 const SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour, regenerated on every page load
 
-export default async function ComplaintsPage() {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ?complaint=<id> opens that complaint's detail view: the link in the
+// office notification and reminder emails. Still behind the normal admin
+// sign-in (this page sits in the (protected) group and proxy.ts gates it).
+export default async function ComplaintsPage({ searchParams }: { searchParams: Promise<{ complaint?: string }> }) {
+  const { complaint: requestedId } = await searchParams;
+  const initialSelectedId = requestedId && UUID_RE.test(requestedId) ? requestedId.toLowerCase() : null;
+
   // No archive: anything past its expiration is deleted for good, right
   // here, before the list is even queried — so it's never possible to see
   // an expired complaint in the dashboard, even momentarily.
@@ -71,7 +79,7 @@ export default async function ComplaintsPage() {
         currentDays={(settings as Pick<SiteSettings, "complaint_expiration_days"> | null)?.complaint_expiration_days ?? 7}
       />
 
-      <ComplaintList complaints={complaintsWithSignedMedia} />
+      <ComplaintList complaints={complaintsWithSignedMedia} initialSelectedId={initialSelectedId} />
     </div>
   );
 }

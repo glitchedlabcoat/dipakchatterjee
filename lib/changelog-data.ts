@@ -42,6 +42,74 @@ export interface ChangelogEntry {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: "v1.19.0",
+    date: "2026-10-18",
+    title: "Email: an Emails section, complaint receipts, office alerts and reminders",
+    simple: {
+      summary: [
+        "A new Emails section in the dashboard, with six parts: Inbox (mail sent to the office's @janatardipak.com addresses), Drafts, Outbox (anything not sent yet), Sent, Trashed and New Message. Every dashboard account can use all of it.",
+        "Write an email in New Message and press Send, or Save draft to finish it later. Drafts are kept safely, even if you close the browser.",
+        "If something can't be sent, it waits in the Outbox with the reason and a Retry button. A message is never sent twice, even if Send is pressed twice.",
+        "Moving a message to Trashed doesn't delete it: Restore puts it back. Trashing a sent email doesn't take it back from the person who received it.",
+        "People who file a complaint can add their email address (it's optional) and get a confirmation with their reference number. It never repeats what they wrote, their phone number or their photos. The office can also be emailed about every new complaint, and get regular reminders about unresolved ones.",
+        "This is switched off until it's set up. A few one-time steps in the email, hosting and database accounts are needed first, and the Inbox only starts receiving mail once the domain's mail settings are added.",
+      ],
+      tutorial: [
+        "Open Emails from the sidebar.",
+        "To write an email, open New Message, fill in To, Subject and the message, then press Send. Press Save draft instead to keep it in Drafts.",
+        "To finish a draft, open Drafts and click it.",
+        "If a message shows up in the Outbox as Failed, read the reason, then press Retry or move it to Trashed.",
+        "Settings (top right) is where you choose the sender name, the reply-to address, who gets new-complaint alerts and reminders, and the reminder schedule. \"Send a test email to myself\" checks that sending works.",
+      ],
+    },
+    advanced: {
+      rootCause:
+        "New feature, not a fix. Built on the existing stack only (Render, Supabase, Resend REST API, no SDK), on top of v1.18.1. Go-live needs: the additive migration applied, RESEND_API_KEY / RESEND_FROM_EMAIL / RESEND_WEBHOOK_SECRET / CRON_SECRET on Render, the Resend webhook, a scheduler calling /api/cron/email, and (inbox only) Resend receiving plus its MX record. See docs/email-system.md.",
+      changes: [
+        {
+          type: "added",
+          text: "Admin > Emails with six sections over email_messages and email_inbound (rules in lib/email/mailbox.ts): Inbox, Drafts (status 'draft', persisted, optimistic concurrency on updated_at), Outbox (mailbox kinds not yet accepted: pending/sending/failed/skipped, with Retry), Sent (sent_at set, delivery status from webhooks), Trashed (soft delete via trashed_at, Restore), New Message (Send, Save draft, Discard). Settings is a secondary link; its history lists system emails only.",
+          files: ["app/admin/(protected)/emails/ (new)", "lib/email/mailbox.ts (new)", "components/admin/AdminSidebar.tsx"],
+        },
+        {
+          type: "security",
+          text: "Every dashboard administrator (any profile, ADMIN or USER) has full access; every server action calls requireAdmin(); read policies use is_admin() (= has a profile); no Emails code uses requireOwner. Exactly once: dedupe_key = Resend Idempotency-Key, and sending a draft is a compare-and-set draft -> pending; trashed rows are never claimed. Sender fixed server-side; 20/hour and 50/day across all administrators counted on queued_at; tests only to the signed-in administrator's own address.",
+          files: ["app/admin/(protected)/emails/actions.ts", "lib/email/store.ts", "lib/email/outbox.ts"],
+        },
+        {
+          type: "added",
+          text: "Optional contact_email on complaints, plus a citizen receipt containing only the reference, time, office contact and a no-guaranteed-outcome note (3 per address per day, 20 per hour). The office notification carries an authenticated deep link (/admin/complaints?complaint=<id>). Both are queued after the complaint is saved and sent in after(); a failure never fails the submission.",
+          files: ["app/(site)/complaints/actions.ts", "components/complaints/ComplaintForm.tsx", "lib/email/complaint-emails.ts", "lib/email/templates.ts"],
+        },
+        {
+          type: "added",
+          text: "Outbox (email_messages): compare-and-set claims, payload frozen on first attempt, retries at 1m/5m/30m/2h/6h, up to 6 attempts within 23h, stale 'sending' reclaimed after 10 minutes; webhook delivery statuses applied monotonically. Reminder schedule maths (daily/weekly/monthly/every N days or months, zoned, DST-safe), one email per occurrence.",
+          files: ["lib/email/outbox.ts", "lib/email/store.ts", "lib/email/resend.ts", "lib/email/schedule.ts", "lib/email/reminders.ts"],
+        },
+        {
+          type: "added",
+          text: "/api/cron/email (timing-safe Bearer CRON_SECRET, 404 when unset): reminder -> outbox -> inbound bodies -> retention (system emails 90 days, correspondence and received mail 365 days, drafts never) -> heartbeat. /api/webhooks/resend: Svix HMAC over the raw body (5-minute tolerance), 256 KB cap, 404 without RESEND_WEBHOOK_SECRET; email.received stored once per Resend id, body fetched with size bounds (needs a Full-access key).",
+          files: ["app/api/cron/email/route.ts", "lib/email/dispatch.ts", "app/api/webhooks/resend/route.ts", "lib/email/webhook-signature.ts", "lib/email/inbound.ts"],
+        },
+        {
+          type: "added",
+          text: "Migration 20261017000000_email_system.sql, additive and idempotent, NOT applied: email_settings, email_messages (draft status, queued_at, trashed_at/trashed_by), email_inbound (trashed_at/trashed_by); select-only RLS via is_admin(); re-runnable over its 10-17 draft. Tested on a disposable Postgres (PGlite) 14/14.",
+          files: ["supabase/migrations/20261017000000_email_system.sql (new)", "types/database.types.ts", "types/domain.ts"],
+        },
+        {
+          type: "changed",
+          text: "/privacy (18 October 2026) covers the email field, the receipt, Resend, and that email exchanged with the office is kept up to a year (needs Mr. Dipak's approval). Consent wording says 'contact details'. Admin complaint detail shows the citizen's email. .env.example documents the new variables. New dependency sanitize-html 2.18.0 (pinned).",
+          files: ["app/(site)/privacy/page.tsx", "app/admin/(protected)/complaints/ComplaintDetailModal.tsx", ".env.example", "package.json", "docs/email-system.md (new)"],
+        },
+        {
+          type: "fixed",
+          text: "A receipt-cap unit test depended on the real date (it failed after 2026-10-18 06:00 UTC); every call now passes the injected test clock, with a regression test at dates in 2020 and 2035. npm test: 89 tests; end-to-end 18/18; headless Edge 4/4.",
+          files: ["tests/unit/email-outbox.test.ts", "tests/unit/email-mailbox.test.ts (new)", "tests/unit/email-boundaries.test.ts"],
+        },
+      ],
+    },
+  },
+  {
     version: "v1.15.0",
     date: "2026-09-17",
     title: "Render memory hardening + the page you're reading right now",

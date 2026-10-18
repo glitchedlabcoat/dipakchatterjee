@@ -231,6 +231,261 @@ export type Database = {
         }
         Relationships: []
       }
+      // email_inbound, email_messages, email_settings: added by hand from
+      // supabase/migrations/20261017000000_email_system.sql (not yet
+      // applied live). Regenerate with `npm run update-types` once it is.
+      email_inbound: {
+        Row: {
+          attachments: Json
+          auth_dkim: string | null
+          auth_dmarc: string | null
+          auth_spf: string | null
+          body_error: string | null
+          body_fetch_attempts: number
+          body_status: string
+          body_truncated: boolean
+          cc_addresses: string[]
+          created_at: string
+          from_address: string
+          from_name: string | null
+          html_body: string | null
+          id: string
+          is_read: boolean
+          message_id: string | null
+          provider_email_id: string
+          received_at: string
+          reply_to_addresses: string[]
+          subject: string | null
+          text_body: string | null
+          to_addresses: string[]
+          trashed_at: string | null
+          trashed_by: string | null
+        }
+        Insert: {
+          attachments?: Json
+          auth_dkim?: string | null
+          auth_dmarc?: string | null
+          auth_spf?: string | null
+          body_error?: string | null
+          body_fetch_attempts?: number
+          body_status?: string
+          body_truncated?: boolean
+          cc_addresses?: string[]
+          created_at?: string
+          from_address: string
+          from_name?: string | null
+          html_body?: string | null
+          id?: string
+          is_read?: boolean
+          message_id?: string | null
+          provider_email_id: string
+          received_at: string
+          reply_to_addresses?: string[]
+          subject?: string | null
+          text_body?: string | null
+          to_addresses?: string[]
+          trashed_at?: string | null
+          trashed_by?: string | null
+        }
+        Update: {
+          attachments?: Json
+          auth_dkim?: string | null
+          auth_dmarc?: string | null
+          auth_spf?: string | null
+          body_error?: string | null
+          body_fetch_attempts?: number
+          body_status?: string
+          body_truncated?: boolean
+          cc_addresses?: string[]
+          created_at?: string
+          from_address?: string
+          from_name?: string | null
+          html_body?: string | null
+          id?: string
+          is_read?: boolean
+          message_id?: string | null
+          provider_email_id?: string
+          received_at?: string
+          reply_to_addresses?: string[]
+          subject?: string | null
+          text_body?: string | null
+          to_addresses?: string[]
+          trashed_at?: string | null
+          trashed_by?: string | null
+        }
+        Relationships: []
+      }
+      email_messages: {
+        Row: {
+          attempts: number
+          body_html: string | null
+          body_text: string | null
+          claimed_at: string | null
+          complaint_id: string | null
+          created_at: string
+          created_by: string | null
+          dedupe_key: string
+          extra_headers: Json | null
+          first_attempt_at: string | null
+          from_header: string | null
+          id: string
+          inbound_id: string | null
+          kind: string
+          last_error: string | null
+          last_event_at: string | null
+          next_attempt_at: string
+          provider_message_id: string | null
+          queued_at: string | null
+          reply_to: string | null
+          sent_at: string | null
+          status: string
+          subject: string | null
+          to_addresses: string[]
+          trashed_at: string | null
+          trashed_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          body_html?: string | null
+          body_text?: string | null
+          claimed_at?: string | null
+          complaint_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_key: string
+          extra_headers?: Json | null
+          first_attempt_at?: string | null
+          from_header?: string | null
+          id?: string
+          inbound_id?: string | null
+          kind: string
+          last_error?: string | null
+          last_event_at?: string | null
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          queued_at?: string | null
+          reply_to?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          to_addresses?: string[]
+          trashed_at?: string | null
+          trashed_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          body_html?: string | null
+          body_text?: string | null
+          claimed_at?: string | null
+          complaint_id?: string | null
+          created_at?: string
+          created_by?: string | null
+          dedupe_key?: string
+          extra_headers?: Json | null
+          first_attempt_at?: string | null
+          from_header?: string | null
+          id?: string
+          inbound_id?: string | null
+          kind?: string
+          last_error?: string | null
+          last_event_at?: string | null
+          next_attempt_at?: string
+          provider_message_id?: string | null
+          queued_at?: string | null
+          reply_to?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string | null
+          to_addresses?: string[]
+          trashed_at?: string | null
+          trashed_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_messages_complaint_id_fkey"
+            columns: ["complaint_id"]
+            isOneToOne: false
+            referencedRelation: "complaints"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "email_messages_inbound_id_fkey"
+            columns: ["inbound_id"]
+            isOneToOne: false
+            referencedRelation: "email_inbound"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_settings: {
+        Row: {
+          citizen_confirmation_enabled: boolean
+          id: string
+          office_notification_email: string | null
+          office_notification_enabled: boolean
+          reminder_frequency: string
+          reminder_interval: number
+          reminder_month_day: number
+          reminder_schedule_updated_at: string
+          reminder_start_date: string
+          reminder_time: string
+          reminder_timezone: string
+          reminder_weekday: number
+          reminders_enabled: boolean
+          reply_to: string | null
+          scheduler_last_run_at: string | null
+          sender_address: string | null
+          sender_name: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          citizen_confirmation_enabled?: boolean
+          id?: string
+          office_notification_email?: string | null
+          office_notification_enabled?: boolean
+          reminder_frequency?: string
+          reminder_interval?: number
+          reminder_month_day?: number
+          reminder_schedule_updated_at?: string
+          reminder_start_date?: string
+          reminder_time?: string
+          reminder_timezone?: string
+          reminder_weekday?: number
+          reminders_enabled?: boolean
+          reply_to?: string | null
+          scheduler_last_run_at?: string | null
+          sender_address?: string | null
+          sender_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          citizen_confirmation_enabled?: boolean
+          id?: string
+          office_notification_email?: string | null
+          office_notification_enabled?: boolean
+          reminder_frequency?: string
+          reminder_interval?: number
+          reminder_month_day?: number
+          reminder_schedule_updated_at?: string
+          reminder_start_date?: string
+          reminder_time?: string
+          reminder_timezone?: string
+          reminder_weekday?: number
+          reminders_enabled?: boolean
+          reply_to?: string | null
+          scheduler_last_run_at?: string | null
+          sender_address?: string | null
+          sender_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       feature_media: {
         Row: {
           caption: string | null

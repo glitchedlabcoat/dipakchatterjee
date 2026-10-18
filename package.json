@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "eslint .",
     "update-types": "supabase gen types typescript --linked > types/database.types.ts",
-    "migrate:r2": "tsx scripts/migrate-supabase-to-r2.ts"
+    "migrate:r2": "tsx scripts/migrate-supabase-to-r2.ts",
+    "test": "node --experimental-test-module-mocks --import ./tests/unit/register-aliases.mjs --test tests/unit/*.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",
@@ -28,6 +29,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.87.0",
     "react-markdown": "^10.1.0",
+    "sanitize-html": "2.18.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {
@@ -35,6 +37,7 @@
     "@types/node": "^22.20.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/sanitize-html": "^2.16.2",
     "cross-env": "^10.1.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.5",

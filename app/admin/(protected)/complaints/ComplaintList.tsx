@@ -48,11 +48,19 @@ function formatDate(value: string) {
   });
 }
 
-export default function ComplaintList({ complaints }: { complaints: ComplaintRow[] }) {
+export default function ComplaintList({
+  complaints,
+  initialSelectedId = null,
+}: {
+  complaints: ComplaintRow[];
+  /** From ?complaint=<id> (links in notification emails). */
+  initialSelectedId?: string | null;
+}) {
   const [items, setItems] = useState(complaints);
   const [isPending, startTransition] = useTransition();
   const [filter, setFilter] = useState<"all" | ComplaintResolutionStatus>("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
+  const linkedMissing = initialSelectedId !== null && !complaints.some((c) => c.id === initialSelectedId);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -108,6 +116,11 @@ export default function ComplaintList({ complaints }: { complaints: ComplaintRow
 
   return (
     <div>
+      {linkedMissing && (
+        <p className="mb-4 rounded-lg border border-line bg-white px-4 py-3 text-sm text-ink-600" role="status">
+          The complaint from that link is no longer available. It may have expired or been deleted.
+        </p>
+      )}
       <div className="flex items-center gap-1.5 mb-4">
         {RESOLUTION_FILTERS.map((f) => (
           <button
