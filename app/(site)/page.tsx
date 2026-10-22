@@ -31,7 +31,7 @@ import type { Metadata } from "next";
 import { createPublicClient } from "@/utils/supabase/public";
 import { PUBLIC_CACHE_TAG, PUBLIC_REVALIDATE_SECONDS, TAG_SECTIONS, createTrackedCache } from "@/lib/cache";
 import { getSiteSettings } from "@/lib/queries/settings";
-import { getPostsList } from "@/lib/queries/posts";
+import { getPostsListOrEmpty } from "@/lib/queries/posts";
 import type { CtaButton, FeatureWithMedia, Organization, Phase, SiteSettings } from "@/types/domain";
 import FeatureSection from "@/components/features/FeatureSection";
 import PostsFeed from "@/components/posts/PostsFeed";
@@ -117,7 +117,7 @@ export default async function HomePage() {
     getHomepageSections(),
   ]);
   const s = settings as SiteSettings | null;
-  const { posts } = await getPostsList({ page: 1, pageSize: s?.notable_works_limit ?? 6 });
+  const { posts } = await getPostsListOrEmpty({ page: 1, pageSize: s?.notable_works_limit ?? 6 });
 
   const headline = s?.hero_headline || FALLBACK_HEADLINE;
   const body = s?.hero_body || FALLBACK_BODY;

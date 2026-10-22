@@ -5,6 +5,47 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.20.0] - 2026-10-22
+
+Posts: "View More" on the public archive, Delete Post / View on Site on the post editor, and an admin Posts list that shows every post again, with pages and a search. From the change request in `references/Changes needed.docx` (not in the repository).
+
+### Fixed
+
+- **The admin Posts list stopped at June 2021.** Root cause: `app/admin/(protected)/posts/page.tsx` fetched `.limit(200)` in feed order (pinned, then newest), so everything after the 200th post was never fetched. The public archive had 257 published posts on 2026-10-22 (21 full pages of 12 plus 5), and its 200th post (page 17, eighth card, 10 June 2021, 9:21 AM) is exactly where the admin list ended. The 57 oldest posts, back to 4 May 2015, were in the database all along; nothing was missing or recreated. The list is now paginated server-side instead of capped (see Added).
+- **Delete Post on the post editor wrapped onto two lines** ("Delete / post") because it shared a row with the title and a long, usually two-line Bengali title squeezed it into a narrow column. It now has its own row under the title, with a bordered style and `whitespace-nowrap`.
+
+### Added
+
+- **"View More" on `/notable-works`** instead of Previous / Page N of M / Next. The first 12 posts render on the server; each click fetches the next 12 and appends them, so visitors keep scrolling one list. Posts already shown are skipped, a failed batch keeps the list and offers "Try again", and the control is replaced by "You've reached the end of the archive." at the end. It is a real link to `/notable-works?page=N+1`, so without JavaScript, and for crawlers, every post is still reachable (old shared `?page=` links keep working, with a "Start from the latest" link).
+- **`GET /api/posts?page=N`** for the button: one batch of 12 published posts as card data only (id, title, excerpt, date label, card image), through the same cached, published-only read as the page (`getPostsList`). The batch size is fixed server-side and the page is limited to 1-1000 (anything else is a 400), so no request can ask for an unbounded slice; a database failure is a 503, not an empty "end of the archive".
+- **View on Site** beside Delete Post on the post editor: opens `/posts/<id>` in a new tab. For a draft (whose public page would 404) it is a disabled control with the reason ("publish and save it to view it on the site").
+- **Admin Posts: pages and search.** 25 posts per page (`range` with an exact count), with numbered page links (first, last, neighbours), and a search box at the top left that matches title or text. Search and page live in the URL (`?q=&page=`); a new search starts at page 1, page links keep the search, Clear resets both, and a page past the end (e.g. after deleting its last post) redirects to the last page.
+
+### Changed
+
+- The public archive and the admin list order ties by `id` last (after pinned, published_at, created_at), so posts sharing a timestamp (imports) can't swap between batches or pages and appear twice or not at all.
+- `getPostsList` now throws on a database error instead of returning (and caching for 10 minutes) an empty list; the homepage feed and `/notable-works` use `getPostsListOrEmpty`, which keeps their previous empty-state behaviour. An offset past the end (PostgREST `PGRST103`) is still an empty page.
+- Admin Posts rows on phones: below 640px the Pin / Published / Edit / Delete controls wrap under the title. They used to leave the title one word wide and push the date badge over the Pin button. Desktop is unchanged.
+- `DeleteEntityButton` takes an optional `className` (default unchanged, so Features and Phases look the same).
+
+### Security
+
+- The search text is reduced to letters, combining marks, digits, spaces, hyphens and zero-width joiners before it goes into the PostgREST `or()` filter, so commas, dots, colons, brackets, quotes and the `* % _` wildcards can't change the query. Combining marks are kept on purpose: Bengali vowel signs, the virama and chandrabindu are marks, so a letters-only filter would have broken every Bengali word. Length limited to 80.
+- Admin reads still use the signed-in user's client (RLS) behind the unchanged `proxy.ts` gate and admin layout; delete still asks for confirmation and runs `requireAdmin()` on the server. The new public endpoint serves only what the public archive already shows and never drafts. No change to CSP, rate limits or authentication.
+
+### Tests
+
+- `npm test`: 121 `node:test` tests (98 earlier, plus 23: `post-cards.test.ts`, `posts-api.test.ts`, `admin-posts.test.ts`), including a regression test that pages through 257 posts and finds every one, the oldest included.
+- Headless Edge against the production build with a fake Supabase (257 published and 3 draft synthetic posts back to 2015; no production data): 78/78 checks, covering View More (append, one bounded request per click, error and retry, no duplicates when a post is published between clicks, end of the archive, drafts never shown, no-JS links, phone layout), the API (shape, card fields only, bad pages rejected), the admin gate (anonymous and forged-session requests go to the login), admin pages and search (every post reachable, search and pages together, redirect past the end, Clear, filter syntax neutralised, a failed query shows an error, phone layout) and the editor (Delete Post on its own line and unwrapped, View on Site beside it opening the public post in a new tab, cancelling the delete confirmation deletes nothing, drafts get the disabled control, phone layout).
+
+### Files Changed
+
+- `app/(site)/notable-works/page.tsx`, `components/posts/NotableWorksArchive.tsx` (new), `app/api/posts/route.ts` (new), `lib/post-cards.ts` (new)
+- `lib/queries/posts.ts`, `app/(site)/page.tsx`
+- `app/admin/(protected)/posts/page.tsx`, `PostList.tsx`, `ViewOnSiteLink.tsx` (new), `[id]/page.tsx`, `lib/queries/admin-posts.ts` (new), `components/admin/DeleteEntityButton.tsx`
+- `tests/unit/post-cards.test.ts`, `tests/unit/posts-api.test.ts`, `tests/unit/admin-posts.test.ts` (new)
+- `lib/changelog-data.ts`, `CHANGELOG.md`, `CHANGELOG.txt`
+
 ## [v1.19.0] - 2026-10-18
 
 Email system and the admin **Emails** section, built on the existing stack (Render, Supabase, Resend REST API, no SDK) on top of v1.18.1. Not live until the database migration is applied and the Resend settings are in place (see `docs/email-system.md`); without the migration the site works as before and the Emails pages say so.

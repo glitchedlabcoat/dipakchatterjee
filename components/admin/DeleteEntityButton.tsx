@@ -14,11 +14,13 @@ export default function DeleteEntityButton({
   confirmMessage,
   redirectTo,
   onDelete,
+  className = "inline-flex items-center gap-2 text-sm font-semibold text-rust hover:text-rust/80 disabled:opacity-60",
 }: {
   label: string;
   confirmMessage: string;
   redirectTo: string;
   onDelete: () => Promise<void>;
+  className?: string;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -36,7 +38,7 @@ export default function DeleteEntityButton({
       type="button"
       onClick={handleClick}
       disabled={isPending}
-      className="inline-flex items-center gap-2 text-sm font-semibold text-rust hover:text-rust/80 disabled:opacity-60"
+      className={className}
     >
       {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
       {isPending ? "Deleting…" : label}

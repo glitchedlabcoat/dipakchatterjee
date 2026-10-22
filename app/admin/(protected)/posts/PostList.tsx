@@ -4,7 +4,7 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { Eye, EyeOff, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
-import type { Post } from "@/types/domain";
+import type { AdminPostListItem } from "@/lib/queries/admin-posts";
 import { deletePost, togglePostPinned, togglePostPublished } from "./actions";
 
 // Fixed timeZone so this is a pure function of `value` — otherwise it
@@ -22,9 +22,19 @@ function formatDate(value: string) {
   });
 }
 
-export default function PostList({ posts }: { posts: Post[] }) {
+export default function PostList({ posts, emptyMessage }: { posts: AdminPostListItem[]; emptyMessage: string }) {
   const [items, setItems] = useState(posts);
   const [isPending, startTransition] = useTransition();
+
+  // A new page, a new search, or the server's refresh after one of the
+  // actions below all arrive as a new `posts` array: show it, replacing
+  // the optimistic copy (the refresh is the truth, e.g. a newly pinned
+  // post moves to page 1).
+  const [shownPosts, setShownPosts] = useState(posts);
+  if (posts !== shownPosts) {
+    setShownPosts(posts);
+    setItems(posts);
+  }
 
   function handleTogglePublished(id: string, next: boolean) {
     setItems((prev) => prev.map((p) => (p.id === id ? { ...p, is_published: next } : p)));
@@ -51,7 +61,7 @@ export default function PostList({ posts }: { posts: Post[] }) {
   if (items.length === 0) {
     return (
       <div className="border border-dashed border-line rounded-lg p-10 text-center text-sm text-ink-400">
-        No posts yet. Add one to get started.
+        {emptyMessage}
       </div>
     );
   }
@@ -59,11 +69,14 @@ export default function PostList({ posts }: { posts: Post[] }) {
   return (
     <ul className="space-y-2">
       {items.map((post) => (
+        // Below sm the four controls wrap under the text: on a phone they
+        // left the title one word wide and pushed the date over the Pin
+        // button.
         <li
           key={post.id}
-          className="flex items-center gap-3 bg-white border border-line rounded-lg p-4"
+          className="flex flex-wrap sm:flex-nowrap items-center gap-3 bg-white border border-line rounded-lg p-4"
         >
-          <div className="flex-1 min-w-0">
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <p className="font-semibold text-navy-900 truncate">
                 {post.title || "Untitled update"}

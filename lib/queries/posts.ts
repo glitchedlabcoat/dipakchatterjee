@@ -19,6 +19,11 @@ import type { PostWithMedia } from "@/types/domain";
 // tag): this reads *which* posts are published and in what order, which
 // changes on any post's create/publish/unpublish/reorder, not just one
 // post's own content.
+//
+// `id` is the last tie-breaker so the order is total: imported posts can
+// share published_at and created_at exactly, and without it Postgres may
+// order those ties differently per query, so "View More" batches could
+// repeat one post and skip another.
 export const getPostsList = cache(
   createTrackedCache(
     "posts-list",
@@ -27,15 +32,22 @@ export const getPostsList = cache(
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      const { data: posts, count } = await supabase
+      const { data: posts, count, error } = await supabase
         .from("posts")
         .select("*, post_media(*)", { count: "exact" })
         .eq("is_published", true)
         .order("is_pinned", { ascending: false })
         .order("published_at", { ascending: false })
         .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
         .order("display_order", { foreignTable: "post_media", ascending: true })
         .range(from, to);
+
+      // An offset past the last post is PostgREST's PGRST103 ("range not
+      // satisfiable"): an empty page, not a failure. Anything else throws,
+      // so unstable_cache doesn't keep a transient outage as "no posts" for
+      // the whole revalidate window; see getPostsListOrEmpty below.
+      if (error && error.code !== "PGRST103") throw new Error(`posts list: ${error.message}`);
 
       return { posts: (posts as PostWithMedia[]) ?? [], count: count ?? 0 };
     },
@@ -43,6 +55,19 @@ export const getPostsList = cache(
     { revalidate: PUBLIC_REVALIDATE_SECONDS, tags: [TAG_POSTS_LIST, PUBLIC_CACHE_TAG] }
   )
 );
+
+// For pages that should still render, with their empty state, if
+// Supabase is briefly unreachable (the homepage feed, /notable-works).
+// The "View More" endpoint calls getPostsList directly instead, so a
+// failure there shows as an error rather than as the end of the list.
+export async function getPostsListOrEmpty(args: { page: number; pageSize: number }) {
+  try {
+    return await getPostsList(args);
+  } catch (err) {
+    console.error("[getPostsList]", err instanceof Error ? err.message : err);
+    return { posts: [] as PostWithMedia[], count: 0 };
+  }
+}
 
 // One cache entry per post id, tagged with that post's own
 // TAG_POST_ITEM(id) — unstable_cache can't take a per-call dynamic tag

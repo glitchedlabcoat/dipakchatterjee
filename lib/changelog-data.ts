@@ -42,6 +42,59 @@ export interface ChangelogEntry {
 
 export const CHANGELOG_ENTRIES: ChangelogEntry[] = [
   {
+    version: "v1.20.0",
+    date: "2026-10-22",
+    title: "Posts: View More, View on Site, and every post back in the dashboard",
+    simple: {
+      summary: [
+        "The Notable Works page on the website now has a \"View More\" button instead of page numbers. Each press adds the next posts below the ones already showing, so visitors can keep scrolling down.",
+        "When you edit a post, Delete Post now sits on its own line under the title, and next to it a new View on Site button opens that post on the website in a new tab. A draft can't be viewed on the site until it's published, so the button says so instead.",
+        "The Posts tab shows every post again. It used to stop at June 2021 because it only ever loaded 200 posts; the older ones, back to 2015, were safe all along. Posts are now split into pages of 25, with a search box at the top left that looks through titles and text, in Bengali or English.",
+      ],
+      tutorial: [
+        "To find a post, type a word from its title or text in the search box on the Posts tab and press Search. Clear goes back to the full list.",
+        "Use the page numbers under the list to move between pages; they keep your search.",
+        "To check a post on the website, open it and press View on Site.",
+      ],
+    },
+    advanced: {
+      rootCause:
+        "The admin Posts page fetched .limit(200) in feed order (pinned, then newest), so posts after the 200th were never fetched. On 2026-10-22 the public archive had 257 published posts; its 200th (page 17, eighth card, 10 June 2021 9:21 AM) is exactly where the admin list ended. No data was missing. The editor's Delete Post wrapped because it shared a flex row with a long two-line title.",
+      changes: [
+        {
+          type: "fixed",
+          text: "Admin Posts: server-side pages of 25 (range + exact count) instead of .limit(200); every post reachable. Ordering pinned, published_at, created_at, id (id makes the order total). A page past the end redirects to the last page.",
+          files: ["app/admin/(protected)/posts/page.tsx", "lib/queries/admin-posts.ts (new)", "app/admin/(protected)/posts/PostList.tsx"],
+        },
+        {
+          type: "added",
+          text: "Admin Posts search at the top left: title or body ilike, in the URL (?q=&page=); a new search starts at page 1, page links keep the search. The text is reduced to letters, combining marks (Bengali vowel signs, virama), digits, spaces, hyphens and ZWJ/ZWNJ before entering the PostgREST or() filter, max 80 characters.",
+          files: ["app/admin/(protected)/posts/page.tsx", "lib/queries/admin-posts.ts (new)"],
+        },
+        {
+          type: "added",
+          text: "/notable-works: View More appends batches of 12 from the new GET /api/posts?page=N (card data only, fixed batch size, page 1-1000 else 400, 503 on database errors, published posts only via the cached getPostsList). Duplicates skipped by id; error with Try again; end message. The control is a real ?page=N+1 link for no-JS and crawlers.",
+          files: ["app/(site)/notable-works/page.tsx", "components/posts/NotableWorksArchive.tsx (new)", "app/api/posts/route.ts (new)", "lib/post-cards.ts (new)"],
+        },
+        {
+          type: "fixed",
+          text: "Post editor: Delete Post on its own row under the title (bordered, no wrapping) with View on Site beside it (new tab to /posts/<id>; disabled with the reason for drafts). DeleteEntityButton takes an optional className, default unchanged.",
+          files: ["app/admin/(protected)/posts/[id]/page.tsx", "app/admin/(protected)/posts/ViewOnSiteLink.tsx (new)", "components/admin/DeleteEntityButton.tsx"],
+        },
+        {
+          type: "changed",
+          text: "getPostsList throws on database errors instead of caching an empty list for 10 minutes (PGRST103, past the end, is still an empty page); the homepage feed and /notable-works use getPostsListOrEmpty to keep their empty state. Admin Posts rows wrap their controls under the title below 640px.",
+          files: ["lib/queries/posts.ts", "app/(site)/page.tsx", "app/admin/(protected)/posts/PostList.tsx"],
+        },
+        {
+          type: "security",
+          text: "No change to authentication, the proxy.ts admin gate, RLS, CSP or rate limits. The public endpoint returns only what the public archive already shows. Tests: npm test 121 (23 new); headless Edge against the production build with a fake Supabase, 78/78.",
+          files: ["tests/unit/post-cards.test.ts (new)", "tests/unit/posts-api.test.ts (new)", "tests/unit/admin-posts.test.ts (new)"],
+        },
+      ],
+    },
+  },
+  {
     version: "v1.19.0",
     date: "2026-10-18",
     title: "Email: an Emails section, complaint receipts, office alerts and reminders",

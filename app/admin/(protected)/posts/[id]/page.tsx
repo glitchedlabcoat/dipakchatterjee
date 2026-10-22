@@ -6,7 +6,9 @@ import { createClient } from "@/utils/supabase/server";
 import { POST_BUCKET, type Post, type PostMedia } from "@/types/domain";
 import MediaManager from "@/components/admin/MediaManager";
 import DeleteEntityButton from "@/components/admin/DeleteEntityButton";
+import { publicPostHref } from "@/lib/post-cards";
 import PostForm from "../PostForm";
+import ViewOnSiteLink from "../ViewOnSiteLink";
 import PostThumbnailUploader from "../PostThumbnailUploader";
 import {
   addPostMedia,
@@ -45,20 +47,25 @@ export default async function EditPostPage({
         Back to Posts
       </Link>
 
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <p className="text-sm font-semibold text-saffron-600 mb-2">Edit Post</p>
-          <h1 className="font-display text-3xl text-navy-900">
-            {post.title || "Untitled update"}
-          </h1>
-        </div>
+      {/* The actions get their own row under the title: beside a long
+          (often two-line Bengali) title the delete button was squeezed
+          into a narrow column and wrapped mid-label. */}
+      <div className="mb-8">
+        <p className="text-sm font-semibold text-saffron-600 mb-2">Edit Post</p>
+        <h1 className="font-display text-3xl text-navy-900 break-words">
+          {post.title || "Untitled update"}
+        </h1>
 
-        <DeleteEntityButton
-          label="Delete post"
-          confirmMessage="Delete this post and all its media? This cannot be undone."
-          redirectTo="/admin/posts"
-          onDelete={deletePost.bind(null, id)}
-        />
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <DeleteEntityButton
+            label="Delete Post"
+            confirmMessage="Delete this post and all its media? This cannot be undone."
+            redirectTo="/admin/posts"
+            onDelete={deletePost.bind(null, id)}
+            className="inline-flex items-center gap-2 whitespace-nowrap text-sm font-semibold text-rust border border-rust/40 bg-white hover:bg-rust/5 px-3.5 py-2 rounded-md transition-colors disabled:opacity-60"
+          />
+          <ViewOnSiteLink href={publicPostHref(post as Post)} />
+        </div>
       </div>
 
       <div className="bg-white border border-line rounded-xl p-6 md:p-8 mb-6">
