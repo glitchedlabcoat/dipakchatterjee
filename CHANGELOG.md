@@ -5,6 +5,20 @@ Entries from [v1.9.0] onward use Keep a Changelog-style subheadings
 "Summary of What Changed" / "Files Edited" format rather than being
 retroactively rewritten.
 
+## [v1.20.1] - 2026-11-09
+
+Dependency security patches. No change to the site's own code or behaviour.
+
+### Security
+
+- `zod` 4.6.2 → 4.6.7 (GHSA-mrhx-c7xc-m3w5, high: validating an oversized array or other constrained collection can exhaust memory; fixed in 4.6.6). The public complaint form validates its input with zod on the server, behind its limit of 5 submissions an hour per connection, so this is patched rather than argued about. The range in `package.json` is now `^4.6.7`, so a fresh install can't resolve a vulnerable version.
+- `sanitize-html` 2.18.0 → 2.18.1, still pinned (GHSA-c9rx-x947-fp3h, moderate: unbounded recursion when re-sanitizing the fallback of a discarded iframe). 2.18.1 also drops its `deepmerge` dependency (GHSA-gcqx-w48m-w2h4, low: prototype poisoning). Only `lib/email/sanitize.ts` uses it, to display received email, and receiving is turned off.
+- `npm audit --omit=dev`: 0 vulnerabilities (was 3: 1 high, 1 moderate, 1 low). The lockfile change is limited to `zod`, `sanitize-html` and the removed `deepmerge`.
+
+### Files Changed
+
+- `package.json`, `package-lock.json`, `CHANGELOG.md`, `CHANGELOG.txt`
+
 ## [v1.20.0] - 2026-10-22
 
 Posts: "View More" on the public archive, Delete Post / View on Site on the post editor, and an admin Posts list that shows every post again, with pages and a search. From the change request in `references/Changes needed.docx` (not in the repository).
